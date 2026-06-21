@@ -1,0 +1,3 @@
+- [GenUI Playground product](project_genui-playground.md) — public demo of generative UI (type → model builds live UI → refine by chat/Gemini voice)
+- [Design system tokens](reference_design-system.md) — dark theme color tokens, font, and key UI conventions in this repo
+- [Generative theming](project_generative-theming.md) — model emits theme hexes → scoped --gp-* vars; open contrast/shading/focus-ring gaps
