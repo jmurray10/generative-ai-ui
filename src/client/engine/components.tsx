@@ -6,7 +6,7 @@
  *
  * Keep this list in sync with src/server/prompt.ts and src/server/validate.ts.
  */
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useGenState } from './state';
 import type { UIAction } from '../../shared/spec';
 
@@ -24,15 +24,38 @@ function asPoints(data: any): { label: string; value: number; color?: string }[]
   );
 }
 
+const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+function luminance(hex: string): number {
+  let h = hex.replace('#', '');
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+  const r = parseInt(h.slice(0, 2), 16) / 255;
+  const g = parseInt(h.slice(2, 4), 16) / 255;
+  const b = parseInt(h.slice(4, 6), 16) / 255;
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+/** Reject model-chosen colors that vanish against the dark canvas → use palette. */
+function safeColor(color: any, fallback: string): string {
+  if (typeof color !== 'string' || !HEX.test(color)) return fallback;
+  return luminance(color) < 0.16 ? fallback : color;
+}
+function fmt(n: number, decimals?: number): string {
+  const opts: Intl.NumberFormatOptions =
+    typeof decimals === 'number'
+      ? { minimumFractionDigits: decimals, maximumFractionDigits: decimals }
+      : { maximumFractionDigits: 2 };
+  return new Intl.NumberFormat('en-US', opts).format(n);
+}
+
 // ===== Layout =============================================================
 const Stack: React.FC<Props> = ({ children }) => <div className="flex flex-col gap-4">{children}</div>;
 
 const Row: React.FC<Props> = ({ children }) => <div className="flex flex-wrap gap-4">{children}</div>;
 
-const Grid: React.FC<Props> = ({ columns = 2, children }) => (
+const Grid: React.FC<Props> = ({ children }) => (
   <div
     className="grid gap-4"
-    style={{ gridTemplateColumns: `repeat(${Math.max(1, Number(columns) || 2)}, minmax(0, 1fr))` }}
+    // auto-fit so columns collapse gracefully on narrow screens (no overflow)
+    style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 13rem), 1fr))' }}
   >
     {children}
   </div>
@@ -111,12 +134,12 @@ const Text: React.FC<Props> = ({ value, stateKey }) => {
 
 const Stat: React.FC<Props> = ({ label, value, prefix = '', suffix = '', decimals }) => {
   let shown: React.ReactNode = value;
-  if (typeof value === 'number' && typeof decimals === 'number') shown = value.toFixed(decimals);
+  if (typeof value === 'number') shown = fmt(value, decimals);
   if (value === undefined || value === null) shown = '—';
   return (
     <div className="min-w-[7rem] flex-1 rounded-xl border border-edge bg-canvas/60 px-4 py-3">
       <div className="text-xs uppercase tracking-wide text-muted">{label}</div>
-      <div className="mt-1 text-2xl font-semibold text-ink">
+      <div className="mt-1 text-2xl font-semibold tabular-nums text-ink">
         {prefix}
         {shown}
         {suffix}
@@ -169,7 +192,7 @@ const ProgressBar: React.FC<Props> = ({ label, value = 0, max = 100, suffix = ''
       {label && (
         <div className="mb-1 flex justify-between text-sm">
           <span className="text-muted">{label}</span>
-          <span className="text-ink">{typeof value === 'number' ? value : 0}{suffix}</span>
+          <span className="tabular-nums text-ink">{fmt(typeof value === 'number' ? value : 0)}{suffix}</span>
         </div>
       )}
       <div className="h-2 w-full overflow-hidden rounded-full bg-edge">
@@ -208,14 +231,19 @@ const BarChart: React.FC<Props> = ({ data, color }) => {
   const max = Math.max(1, ...pts.map((p) => p.value));
   const bw = pts.length ? (W - pad * 2) / pts.length : 0;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      className="w-full"
+      role="img"
+      aria-label={'Bar chart: ' + pts.map((p) => `${p.label} ${p.value}`).join(', ')}
+    >
       {pts.map((p, i) => {
         const h = (p.value / max) * (H - pad * 2);
         const x = pad + i * bw;
         return (
           <g key={i}>
-            <rect x={x + bw * 0.15} y={H - pad - h} width={bw * 0.7} height={h} rx="3" fill={color || PALETTE[i % PALETTE.length]} />
-            <text x={x + bw * 0.5} y={H - 7} textAnchor="middle" fontSize="9" fill="#9a9ab0">{p.label}</text>
+            <rect x={x + bw * 0.15} y={H - pad - h} width={bw * 0.7} height={h} rx="3" fill={safeColor(color, PALETTE[i % PALETTE.length])} />
+            <text x={x + bw * 0.5} y={H - 7} textAnchor="middle" fontSize="10" fill="#b8b8cf">{p.label}</text>
           </g>
         );
       })}
@@ -223,7 +251,8 @@ const BarChart: React.FC<Props> = ({ data, color }) => {
   );
 };
 
-const LineChart: React.FC<Props> = ({ data, color = '#7c5cff' }) => {
+const LineChart: React.FC<Props> = ({ data, color: colorProp }) => {
+  const color = safeColor(colorProp, '#7c5cff');
   const pts = asPoints(data);
   const W = 320, H = 170, pad = 22;
   const vals = pts.map((p) => p.value);
@@ -234,7 +263,12 @@ const LineChart: React.FC<Props> = ({ data, color = '#7c5cff' }) => {
   const d = pts.map((p, i) => `${i ? 'L' : 'M'} ${sx(i)} ${sy(p.value)}`).join(' ');
   const area = `${d} L ${sx(pts.length - 1)} ${H - pad} L ${sx(0)} ${H - pad} Z`;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      className="w-full"
+      role="img"
+      aria-label={'Line chart: ' + pts.map((p) => `${p.label} ${p.value}`).join(', ')}
+    >
       <path d={area} fill={color} opacity="0.12" />
       <path d={d} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
       {pts.map((p, i) => <circle key={i} cx={sx(i)} cy={sy(p.value)} r="3" fill={color} />)}
@@ -257,17 +291,25 @@ const PieChart: React.FC<Props> = ({ data }) => {
     const xi0 = cx + ir * Math.cos(a0), yi0 = cy + ir * Math.sin(a0);
     const d = `M ${x0} ${y0} A ${r} ${r} 0 ${large} 1 ${x1} ${y1} L ${xi1} ${yi1} A ${ir} ${ir} 0 ${large} 0 ${xi0} ${yi0} Z`;
     a0 = a1;
-    return { d, c: p.color || PALETTE[i % PALETTE.length], label: p.label, value: p.value };
+    return { d, c: safeColor(p.color, PALETTE[i % PALETTE.length]), label: p.label, value: p.value };
   });
   return (
-    <div className="flex items-center gap-4">
-      <svg width="160" height="160" viewBox="0 0 160 160">{seg.map((s, i) => <path key={i} d={s.d} fill={s.c} />)}</svg>
+    <div className="flex flex-wrap items-center gap-4">
+      <svg
+        width="160"
+        height="160"
+        viewBox="0 0 160 160"
+        role="img"
+        aria-label={'Pie chart: ' + pts.map((p) => `${p.label} ${p.value}`).join(', ')}
+      >
+        {seg.map((s, i) => <path key={i} d={s.d} fill={s.c} />)}
+      </svg>
       <div className="flex flex-col gap-1 text-xs">
         {seg.map((s, i) => (
           <div key={i} className="flex items-center gap-2">
             <span className="h-3 w-3 rounded" style={{ background: s.c }} />
             <span className="text-muted">{s.label}</span>
-            <span className="text-ink">{s.value}</span>
+            <span className="tabular-nums text-ink">{fmt(s.value)}</span>
           </div>
         ))}
       </div>
@@ -316,7 +358,14 @@ const Toggle: React.FC<Props> = ({ label, stateKey }) => {
   const { state, setVar } = useGenState();
   const on = Boolean(state[stateKey]);
   return (
-    <button type="button" onClick={() => setVar(stateKey, !on)} className="flex items-center justify-between gap-3 text-sm text-muted">
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={() => setVar(stateKey, !on)}
+      className="flex w-full items-center justify-between gap-3 text-sm text-muted"
+    >
       <span>{label}</span>
       <span className={`relative h-6 w-11 rounded-full transition-colors ${on ? 'bg-accent' : 'bg-edge'}`}>
         <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${on ? 'left-[1.375rem]' : 'left-0.5'}`} />
@@ -399,7 +448,7 @@ const Button: React.FC<Props> = ({ label, action, variant = 'solid' }) => {
   const styles =
     variant === 'ghost'
       ? 'border border-edge text-muted hover:text-ink hover:border-accent'
-      : 'bg-accent text-white hover:bg-accent-deep';
+      : 'bg-accent text-accent-ink hover:bg-accent-deep';
   return (
     <button type="button" className={`${base} ${styles}`} onClick={() => action && dispatch(action as UIAction)}>
       {label}
@@ -409,15 +458,152 @@ const Button: React.FC<Props> = ({ label, action, variant = 'solid' }) => {
 
 // ===== Sandboxed escape hatch ============================================
 const CustomWidget: React.FC<Props> = ({ html = '', css = '', script = '', height = 240 }) => {
-  const srcDoc = `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body>${html}<scr` + `ipt>${script}</scr` + `ipt></body></html>`;
+  const ref = useRef<HTMLIFrameElement>(null);
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      if (ref.current && e.source === ref.current.contentWindow && e.data && typeof e.data.__artifactText === 'string') {
+        ref.current.dataset.artifactText = e.data.__artifactText;
+      }
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+  const srcDoc =
+    `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body>${html}` +
+    `<scr` + `ipt>${script}</scr` + `ipt>` +
+    `<scr` + `ipt>${TEXT_POSTER}</scr` + `ipt></body></html>`;
   return (
     <iframe
+      ref={ref}
       title="custom-widget"
       sandbox="allow-scripts"
       referrerPolicy="no-referrer"
       srcDoc={srcDoc}
       className="w-full rounded-xl border border-edge bg-canvas"
       style={{ height: Number(height) }}
+    />
+  );
+};
+
+// ===== Freeform React/Tailwind lane (sandboxed, CDN runtime) =============
+// The model writes a real React component (`function App(){…}`) using Tailwind.
+// It is transpiled by Babel and rendered inside an isolated iframe
+// (sandbox="allow-scripts", no same-origin) so it cannot touch the parent page.
+// React/ReactDOM/Babel/Tailwind load from CDN. The iframe posts its content
+// height back so the frame auto-sizes to the design.
+// Posts a text digest of the iframe's content to the parent, so the voice agent's
+// read_ui can "see" inside the otherwise cross-origin sandbox.
+const TEXT_POSTER =
+  'var __lt=0;function __pt(){try{var n=Date.now();if(n-__lt<700)return;__lt=n;parent.postMessage({__artifactText:(document.body.innerText||"").replace(/\\s+/g," ").trim().slice(0,3000)},"*");}catch(e){}}setTimeout(__pt,800);setTimeout(__pt,2500);try{new MutationObserver(__pt).observe(document.documentElement,{subtree:true,childList:true,characterData:true});}catch(e){}';
+
+// A sandbox without allow-same-origin throws on localStorage/sessionStorage and
+// has no nice way to surface errors. Install in-memory storage shims + a small
+// error reporter; shared by both runtimes.
+const ARTIFACT_SHIM =
+  'window.__err=function(m){var r=document.getElementById("root");if(r){r.innerHTML="";var p=document.createElement("pre");p.style.cssText="color:#f87171;padding:16px;font:12px ui-monospace,monospace;white-space:pre-wrap";p.textContent=String(m);r.appendChild(p);}};' +
+  'window.addEventListener("error",function(e){window.__err((e&&e.message)||String(e));});' +
+  'window.addEventListener("unhandledrejection",function(e){window.__err((e&&e.reason&&e.reason.message)||String(e&&e.reason));});' +
+  'try{var _mk=function(){var m={};var s={getItem:function(k){return Object.prototype.hasOwnProperty.call(m,k)?m[k]:null;},setItem:function(k,v){m[k]=String(v);},removeItem:function(k){delete m[k];},clear:function(){m={};},key:function(i){return Object.keys(m)[i]||null;}};Object.defineProperty(s,"length",{get:function(){return Object.keys(m).length;}});return s;};' +
+  'Object.defineProperty(window,"localStorage",{configurable:true,value:_mk()});Object.defineProperty(window,"sessionStorage",{configurable:true,value:_mk()});}catch(e){}' +
+  TEXT_POSTER;
+
+const escScript = (code: string): string => JSON.stringify(code).replace(/<\//g, '<\\/');
+
+// Classic lane: global React UMD + Babel classic. Hooks are pre-destructured;
+// no import/export. Best for small self-contained components. Auto-resizes.
+function buildClassicDoc(code: string): string {
+  const prelude =
+    'const {useState,useEffect,useRef,useMemo,useCallback,useReducer}=React;' +
+    'class ErrorBoundary extends React.Component{constructor(p){super(p);this.state={err:0};}static getDerivedStateFromError(){return {err:1};}componentDidCatch(e){window.__err&&window.__err((e&&e.message)||e);}render(){return this.state.err?null:this.props.children;}}';
+  const epilogue =
+    'const _r=ReactDOM.createRoot(document.getElementById("root"));_r.render(React.createElement(ErrorBoundary,null,React.createElement(App)));' +
+    'function _ph(){try{parent.postMessage({__artifactHeight:document.documentElement.scrollHeight},"*");}catch(e){}}try{new ResizeObserver(_ph).observe(document.body);}catch(e){}setTimeout(_ph,60);setTimeout(_ph,500);';
+  const runner =
+    'try{var _src=' + escScript(code) + ';var _full=' + JSON.stringify(prelude) + '+"\\n"+_src+"\\n"+' + JSON.stringify(epilogue) + ';' +
+    'var _out=Babel.transform(_full,{presets:[["react",{runtime:"classic"}]]}).code;new Function(_out)();}catch(e){window.__err((e&&e.message)||e);}';
+  return '<!doctype html><html><head><meta charset="utf-8">' +
+    '<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>' +
+    '<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>' +
+    '<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>' +
+    '<script src="https://cdn.tailwindcss.com"></script>' +
+    '<style>html,body{margin:0;background:transparent}#root{min-height:100%}</style>' +
+    '</head><body><div id="root"></div><script>' + ARTIFACT_SHIM + '</script><script>' + runner + '</script></body></html>';
+}
+
+// Module lane: import maps + esm.sh, Babel automatic, run as a blob module.
+// Lets the model `import` real npm packages (lucide-react, hls.js, framer-motion).
+function buildModuleDoc(code: string): string {
+  const importMap = JSON.stringify({
+    imports: {
+      react: 'https://esm.sh/react@18.3.1',
+      'react-dom': 'https://esm.sh/react-dom@18.3.1',
+      'react-dom/client': 'https://esm.sh/react-dom@18.3.1/client',
+      'react/jsx-runtime': 'https://esm.sh/react@18.3.1/jsx-runtime',
+      'lucide-react': 'https://esm.sh/lucide-react@0.439.0?external=react',
+      'hls.js': 'https://esm.sh/hls.js@1.5.15',
+      'framer-motion': 'https://esm.sh/framer-motion@11?external=react,react-dom',
+      // charts / dataviz
+      recharts: 'https://esm.sh/recharts@2?external=react,react-dom',
+      d3: 'https://esm.sh/d3@7',
+      // 3D
+      three: 'https://esm.sh/three@0.160.0',
+      '@react-three/fiber': 'https://esm.sh/@react-three/fiber@8?external=react,react-dom,three',
+      // drag & drop
+      '@dnd-kit/core': 'https://esm.sh/@dnd-kit/core@6?external=react,react-dom',
+      '@dnd-kit/sortable': 'https://esm.sh/@dnd-kit/sortable@8?external=react,react-dom',
+      '@dnd-kit/utilities': 'https://esm.sh/@dnd-kit/utilities@3?external=react',
+      // misc utilities
+      gsap: 'https://esm.sh/gsap@3',
+      'react-markdown': 'https://esm.sh/react-markdown@9?external=react',
+      'date-fns': 'https://esm.sh/date-fns@3',
+      'canvas-confetti': 'https://esm.sh/canvas-confetti@1',
+      clsx: 'https://esm.sh/clsx@2',
+      zustand: 'https://esm.sh/zustand@4?external=react',
+      'react-icons/': 'https://esm.sh/react-icons@5.3.0/',
+    },
+  });
+  const mount = "\n;import { createRoot as __cr } from 'react-dom/client';\n__cr(document.getElementById('root')).render(<App/>);";
+  const runner =
+    'try{var _src=' + escScript(code) + ';var _full=_src+' + JSON.stringify(mount) + ';' +
+    'var _out=Babel.transform(_full,{presets:[["react",{runtime:"automatic"}]],filename:"app.jsx"}).code;' +
+    'var _u=URL.createObjectURL(new Blob([_out],{type:"text/javascript"}));import(_u).catch(function(e){window.__err((e&&e.message)||String(e));});}catch(e){window.__err((e&&e.message)||e);}';
+  return '<!doctype html><html><head><meta charset="utf-8">' +
+    '<script src="https://cdn.tailwindcss.com"></script>' +
+    '<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>' +
+    '<script type="importmap">' + importMap + '</script>' +
+    '<style>html,body{margin:0;background:transparent;height:100%}#root{height:100%;min-height:100%}</style>' +
+    '</head><body><div id="root"></div><script>' + ARTIFACT_SHIM + '</script><script>' + runner + '</script></body></html>';
+}
+
+function buildArtifactDoc(code: string): string {
+  // ES `import` statements → module lane; otherwise the simple classic lane.
+  const usesImports = /(^|[\n;])\s*import\s.+from\s/.test(code) || /(^|[\n;])\s*import\s+['"]/.test(code);
+  return usesImports ? buildModuleDoc(code) : buildClassicDoc(code);
+}
+
+const ReactArtifact: React.FC<Props> = ({ code = '', height = 480 }) => {
+  const ref = useRef<HTMLIFrameElement>(null);
+  const [h, setH] = useState<number>(Number(height) || 480);
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      if (!ref.current || e.source !== ref.current.contentWindow || !e.data) return;
+      if (typeof e.data.__artifactHeight === 'number') setH(Math.max(80, Math.min(2400, Math.round(e.data.__artifactHeight))));
+      if (typeof e.data.__artifactText === 'string') ref.current.dataset.artifactText = e.data.__artifactText;
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+  return (
+    <iframe
+      ref={ref}
+      title="react-artifact"
+      sandbox="allow-scripts"
+      allow="autoplay; fullscreen; encrypted-media"
+      allowFullScreen
+      referrerPolicy="no-referrer"
+      srcDoc={buildArtifactDoc(String(code))}
+      className="w-full rounded-xl border border-edge bg-canvas"
+      style={{ height: h }}
     />
   );
 };
@@ -433,6 +619,7 @@ export const registry: Record<string, React.FC<Props>> = {
   Slider, NumberInput, TextInput, Toggle, Select, RadioGroup, ColorPicker, Swatch,
   // action
   Button,
-  // escape hatch
+  // sandboxed escape hatches
   CustomWidget,
+  ReactArtifact,
 };
