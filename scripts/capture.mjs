@@ -11,7 +11,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1100, height: 800 } });
 try {
-  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await page.goto(`${BASE}?noauto=1`, { waitUntil: 'networkidle' });
   await page.getByRole('textbox').first().fill('a quarterly sales dashboard with KPI cards and a bar chart of revenue by quarter');
   await page.getByRole('button', { name: /generate/i }).click();
   await page.waitForSelector('svg', { timeout: 60000 });

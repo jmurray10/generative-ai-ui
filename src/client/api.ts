@@ -34,12 +34,20 @@ export interface StreamHandlers {
 export async function streamSpec(
   body: { prompt: string; spec?: UISpec },
   handlers: StreamHandlers,
+  signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch('/api/stream', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetch('/api/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal,
+    });
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') return;
+    throw e;
+  }
   if (!res.ok || !res.body) {
     handlers.onError?.(`stream: ${res.status}`);
     return;
@@ -48,6 +56,7 @@ export async function streamSpec(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let gotDone = false;
 
   const handleFrame = (frame: string) => {
     let event = 'message';
@@ -65,18 +74,25 @@ export async function streamSpec(
     }
     if (event === 'meta') handlers.onMeta?.(parsed);
     else if (event === 'node') handlers.onNode?.(parsed);
-    else if (event === 'done') handlers.onDone?.(parsed);
-    else if (event === 'error') handlers.onError?.(parsed.error);
+    else if (event === 'done') { gotDone = true; handlers.onDone?.(parsed); }
+    else if (event === 'error') { gotDone = true; handlers.onError?.(parsed.error); } // terminal — don't double-fire the close fallback
   };
 
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let idx: number;
-    while ((idx = buffer.indexOf('\n\n')) >= 0) {
-      handleFrame(buffer.slice(0, idx));
-      buffer = buffer.slice(idx + 2);
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buffer.indexOf('\n\n')) >= 0) {
+        handleFrame(buffer.slice(0, idx));
+        buffer = buffer.slice(idx + 2);
+      }
     }
+  } catch (e) {
+    if ((e as Error).name !== 'AbortError') handlers.onError?.(String(e));
+    return;
   }
+  // stream closed without a `done` (and not user-aborted) → don't get stuck "building"
+  if (!gotDone && !signal?.aborted) handlers.onError?.('The connection closed before the UI finished — please try again.');
 }

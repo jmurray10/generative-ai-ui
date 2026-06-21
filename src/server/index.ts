@@ -19,6 +19,7 @@ import { dirname, join } from 'node:path';
 import { getGenerator } from './generator.ts';
 import { examples } from './examples.ts';
 import { openapiSpec } from './openapi.ts';
+import { attachVoice } from './voice.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..');
@@ -26,6 +27,10 @@ const CLIENT_DIST = join(PROJECT_ROOT, 'dist', 'client');
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const generator = getGenerator();
+
+// Route obviously multi-screen requests through the plan→expand path.
+const APP_LIKE = /\b(deck|slides?|presentation|onboarding|wizard|walkthrough|stepper|flow|tour|quiz|survey|multi[\s-]?(screen|step|page)|several\s+(screens|pages|steps))\b/i;
+const generateFor = (prompt: string) => (APP_LIKE.test(prompt) ? generator.generateApp(prompt) : generator.generate(prompt));
 
 const app = express();
 app.use(cors());
@@ -47,7 +52,7 @@ app.post('/api/generate', async (req: Request, res: Response) => {
     return;
   }
   try {
-    const spec = await generator.generate(prompt);
+    const spec = await generateFor(prompt);
     res.json({ prompt, source: generator.name, spec });
   } catch (err) {
     console.error('[generate] failed:', err);
@@ -72,6 +77,7 @@ app.post('/api/stream', async (req: Request, res: Response) => {
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
   (res as any).flushHeaders?.();
+  res.write(': open\n\n'); // heartbeat so proxies don't cut the idle connection before meta
 
   const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 
@@ -80,7 +86,7 @@ app.post('/api/stream', async (req: Request, res: Response) => {
       send('error', { error: 'A non-empty "prompt" string is required.' });
       return res.end();
     }
-    const spec = baseSpec ? await generator.refine(prompt, baseSpec) : await generator.generate(prompt);
+    const spec = baseSpec ? await generator.refine(prompt, baseSpec) : await generateFor(prompt);
     send('meta', { title: spec.title ?? null, initialState: spec.initialState ?? {}, count: spec.tree.length, source: generator.name });
     for (let i = 0; i < spec.tree.length; i++) {
       await delay(STREAM_STAGGER_MS);
@@ -112,10 +118,13 @@ if (existsSync(CLIENT_DIST)) {
   console.log('[server] dist/client not built yet — run `npm run build` (dev uses Vite on :5173).');
 }
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`\n  GenUI Playground`);
   console.log(`  ────────────────`);
   console.log(`  API      http://localhost:${PORT}/api/health`);
   console.log(`  Docs     http://localhost:${PORT}/docs`);
   console.log(`  Generator: ${generator.name}\n`);
 });
+
+// Gemini Live voice agent (WebSocket /voice) — no-op if no key.
+attachVoice(server);

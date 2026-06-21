@@ -19,8 +19,8 @@ const KNOWN_TYPES = new Set([
   'BarChart', 'LineChart', 'PieChart',
   // input
   'Slider', 'NumberInput', 'TextInput', 'Toggle', 'Select', 'RadioGroup', 'ColorPicker', 'Swatch',
-  // action + escape hatch
-  'Button', 'CustomWidget',
+  // action + sandboxed escape hatches
+  'Button', 'CustomWidget', 'ReactArtifact',
 ]);
 
 export interface ValidationResult {
@@ -91,11 +91,13 @@ export function validateSpec(raw: unknown): ValidationResult {
   const initialState = isPlainObject(obj.initialState)
     ? (obj.initialState as Record<string, JSONValue>)
     : undefined;
+  const theme = isPlainObject(obj.theme) ? (obj.theme as UISpec['theme']) : undefined;
 
   return {
     spec: {
       ...(typeof obj.title === 'string' ? { title: obj.title } : {}),
       ...(initialState ? { initialState } : {}),
+      ...(theme ? { theme } : {}),
       tree,
     },
     warnings,

@@ -41,21 +41,34 @@ export interface UINode {
   children?: UINode[];
 }
 
+/** An optional per-UI design system the model can emit for a bespoke look. */
+export interface UITheme {
+  bg?: string; // page background (hex)
+  surface?: string; // card/panel background (hex)
+  text?: string; // primary text (hex)
+  muted?: string; // secondary text (hex)
+  accent?: string; // highlights / buttons (hex)
+  border?: string; // hairline borders (hex)
+  font?: string; // a Google Font family name
+}
+
 /** The full generated interface. */
 export interface UISpec {
   title?: string;
   /** Seed values for the reactive store. */
   initialState?: Record<string, JSONValue>;
+  /** Optional design tokens — applied as scoped CSS variables to the registry UI. */
+  theme?: UITheme;
   tree: UINode[];
 }
 
-/** A gallery/example entry: a named prompt with its canned spec. */
+/** A gallery entry — just an example PROMPT. There are no canned specs; clicking
+ *  one asks the model to generate the UI live from its toolbox. */
 export interface Example {
   id: string;
   title: string;
   prompt: string;
   blurb: string;
-  spec: UISpec;
 }
 
 /** Response shape of POST /api/generate. */

@@ -7,7 +7,11 @@ export const openapiSpec = {
     description:
       'Generate and serve declarative UI specs. A spec is rendered client-side by a ' +
       'whitelisted component registry plus a reactive state layer (safe expression ' +
-      'evaluation, no `eval`). Arbitrary code only runs inside the sandboxed CustomWidget.',
+      'evaluation, no `eval`); richer output runs in sandboxed iframes — a vanilla-JS ' +
+      'CustomWidget or a freeform React+Tailwind ReactArtifact. A spec may carry an ' +
+      'optional `theme`, and multi-screen requests are planned→expanded into a tabbed ' +
+      'app. A separate WebSocket at `/voice` exposes a Gemini Live voice agent that can ' +
+      'read and edit the on-screen UI (not described here — OpenAPI does not model WS).',
   },
   servers: [{ url: '/', description: 'this server' }],
   tags: [
@@ -81,7 +85,9 @@ export const openapiSpec = {
         summary: 'Generate or refine a spec, streamed node-by-node (SSE)',
         description:
           'Server-Sent Events. Generates (or, when `spec` is supplied, refines) the full spec, ' +
-          'then emits it progressively for a "watch it build" reveal. Events: `meta` ' +
+          'then emits it progressively for a "watch it build" reveal. Prompts that read as ' +
+          'multi-screen (deck/onboarding/wizard/flow/…) are planned into screens, generated ' +
+          'independently, and assembled into a tabbed app. Events: `meta` ' +
           '({title, initialState, count, source}), one `node` per top-level node ({index, node}), ' +
           'then `done` ({spec}); `error` ({error}) on failure.',
         requestBody: {
@@ -152,23 +158,40 @@ export const openapiSpec = {
           children: { type: 'array', items: { $ref: '#/components/schemas/UINode' } },
         },
       },
+      UITheme: {
+        type: 'object',
+        description:
+          'Optional design tokens. Applied as scoped CSS variables to the registry UI, ' +
+          'through a deterministic WCAG contrast pass that guarantees legible text. ' +
+          'Sandboxed lanes (CustomWidget/ReactArtifact) theme themselves.',
+        properties: {
+          bg: { type: 'string', example: '#0f1729' },
+          surface: { type: 'string', example: '#1e293b' },
+          text: { type: 'string', example: '#f1f5f9' },
+          muted: { type: 'string', example: '#94a3b8' },
+          accent: { type: 'string', example: '#38bdf8' },
+          border: { type: 'string' },
+          font: { type: 'string', description: 'a Google Font family', example: 'Space Grotesk' },
+        },
+      },
       UISpec: {
         type: 'object',
         required: ['tree'],
         properties: {
           title: { type: 'string' },
           initialState: { type: 'object', additionalProperties: true },
+          theme: { $ref: '#/components/schemas/UITheme' },
           tree: { type: 'array', items: { $ref: '#/components/schemas/UINode' } },
         },
       },
       Example: {
         type: 'object',
+        description: 'An example prompt (no canned spec) — the model generates from it live.',
         properties: {
           id: { type: 'string' },
           title: { type: 'string' },
           prompt: { type: 'string' },
           blurb: { type: 'string' },
-          spec: { $ref: '#/components/schemas/UISpec' },
         },
       },
       GenerateResponse: {
