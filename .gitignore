@@ -1,9 +1,26 @@
+# Node
 node_modules/
 dist/
+.vite/
+*.tsbuildinfo
+
+# Env
 .env
 .env.local
-*.log
-.vite/
-.DS_Store
+.env.*.local
+
+# Generated/captured demo output (the curated docs/ assets ARE committed)
 scripts/screens/
+.playwright-mcp/
+
+# Logs / temp
+*.log
+*.tmp
+
+# OS
+.DS_Store
+
+# Editor / tooling
+.vscode/
+.idea/
 .claude/

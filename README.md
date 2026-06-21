@@ -1,5 +1,11 @@
 # GenUI Playground
 
+[![CI](https://github.com/jmurray10/generative-ai-ui/actions/workflows/ci.yml/badge.svg)](https://github.com/jmurray10/generative-ai-ui/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![React](https://img.shields.io/badge/react-18-149eca.svg)](#run-it)
+[![TypeScript](https://img.shields.io/badge/typescript-5-3178c6.svg)](#run-it)
+[![LLM](https://img.shields.io/badge/LLM-Gemini-8e75ff.svg)](https://ai.google.dev/)
+
 A public playground that shows off **generative UI**: type a sentence, and a
 working, interactive interface builds itself. No upload, no domain setup, no
 account. **Nothing is hard-coded** — the gallery is just example *prompts*, and
@@ -13,6 +19,11 @@ shows a "connect a model" notice.)
 > A complete working demo of the hybrid approach end-to-end — registry + sandbox +
 > freeform React lanes, live Gemini voice, generative theming, and multi-screen
 > generation. See [status](#status--roadmap).
+
+![GenUI Playground — a prompt builds a working, themed interface](docs/demo.png)
+
+> _Type a sentence → a working, themed, interactive UI streams in node-by-node. Talk to it
+> with the Gemini Live voice agent to read or edit the screen._
 
 ## How it works
 
@@ -111,3 +122,48 @@ agent. Optional: `GEMINI_MODEL` (default `gemini-3.5-flash`), `STREAM_STAGGER_MS
   feature + theme render checks, and a Gemini Live voice agent test.
 
 **Next:** shareable permalinks + remix.
+
+## Project layout
+
+```
+generative-ai-ui/
+├── docker-compose.yml          single container, API + built client on :8080
+├── .github/workflows/ci.yml    typecheck + build on every push / PR
+├── docs/                       README assets (demo screenshot)
+├── src/
+│   ├── shared/spec.ts          the UISpec contract (server ⇄ client)
+│   ├── server/                 Express + tsx, single port 8080
+│   │   ├── index.ts            routes: /api/stream (SSE), /api/generate, /docs
+│   │   ├── generator.ts        Generator interface; Gemini (generate/refine/generateApp)
+│   │   ├── prompt.ts           system prompt — pins the component vocabulary
+│   │   ├── voice.ts            Gemini Live voice agent (/voice WebSocket)
+│   │   ├── validate.ts         server-side validateSpec
+│   │   └── openapi.ts          Swagger spec
+│   └── client/
+│       ├── App.tsx             prompt bar, gallery, refine, voice toggle
+│       ├── engine/             the renderer
+│       │   ├── components.tsx  Lane A registry + Lanes B/C sandbox iframes
+│       │   ├── state.ts        reactive state + safe expr-eval bindings
+│       │   └── GeneratedApp.tsx spec → tree, generative theming + contrast pass
+│       └── voice/              VoicePanel + useLiveVoice (Live API client)
+└── scripts/                    Playwright/Chrome E2E, theme, feature, voice checks
+```
+
+## Contributing
+
+Issues and PRs welcome — see [`CONTRIBUTING.md`](./CONTRIBUTING.md). Report security issues
+privately via [`SECURITY.md`](./SECURITY.md). Participation is under the
+[Code of Conduct](./CODE_OF_CONDUCT.md). Notable changes are tracked in
+[`CHANGELOG.md`](./CHANGELOG.md); how the models are used is in [`LLM.md`](./LLM.md).
+
+## License
+
+MIT — see [`LICENSE`](./LICENSE).
+
+## Contact
+
+Built by **Jeff Murray** ([@jmurray10](https://github.com/jmurray10)).
+
+- Email: **jeff.murray@alumni.upenn.edu**
+- LinkedIn: [linkedin.com/in/jeff-murray-ai](https://www.linkedin.com/in/jeff-murray-ai)
+- GitHub: [@jmurray10](https://github.com/jmurray10)
