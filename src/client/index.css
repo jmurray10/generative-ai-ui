@@ -4,6 +4,20 @@
 @tailwind utilities;
 
 @layer base {
+  /* default design tokens (RGB channels) — a generated UI overrides --gp-* on its wrapper */
+  :root {
+    --gp-canvas: 11 11 18;
+    --gp-panel: 21 21 31;
+    --gp-edge: 38 38 53;
+    --gp-ink: 231 231 240;
+    --gp-muted: 184 184 207;
+    --gp-accent: 124 92 255;
+    --gp-accent-soft: 157 134 255;
+    --gp-accent-deep: 91 63 214;
+    --gp-on-accent: 255 255 255;
+    --gp-focus: 157 134 255;
+  }
+
   html,
   body,
   #root {
@@ -17,21 +31,35 @@
       radial-gradient(50rem 50rem at -10% 10%, rgba(91, 63, 214, 0.12), transparent 55%);
     background-attachment: fixed;
   }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--gp-focus)); /* themed + contrast-guaranteed vs the page bg */
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
 }
 
 @layer utilities {
   @keyframes rise {
     from {
       opacity: 0;
-      transform: translateY(8px);
+      transform: translateY(10px) scale(0.98);
     }
     to {
       opacity: 1;
-      transform: translateY(0);
+      transform: translateY(0) scale(1);
     }
   }
 
   .animate-rise {
-    animation: rise 0.35s ease-out both;
+    animation: rise 0.4s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-rise,
+    .animate-ping,
+    .animate-pulse {
+      animation: none !important;
+    }
   }
 }

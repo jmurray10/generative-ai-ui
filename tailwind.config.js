@@ -4,15 +4,18 @@ export default {
   theme: {
     extend: {
       colors: {
-        canvas: '#0b0b12',
-        panel: '#15151f',
-        edge: '#262635',
-        ink: '#e7e7f0',
-        muted: '#9a9ab0',
+        // CSS-variable driven so a generated UI can be re-themed by setting the
+        // --gp-* channels on its wrapper (see GeneratedApp). Defaults in index.css.
+        canvas: 'rgb(var(--gp-canvas) / <alpha-value>)',
+        panel: 'rgb(var(--gp-panel) / <alpha-value>)',
+        edge: 'rgb(var(--gp-edge) / <alpha-value>)',
+        ink: 'rgb(var(--gp-ink) / <alpha-value>)',
+        muted: 'rgb(var(--gp-muted) / <alpha-value>)',
         accent: {
-          DEFAULT: '#7c5cff',
-          soft: '#9d86ff',
-          deep: '#5b3fd6',
+          DEFAULT: 'rgb(var(--gp-accent) / <alpha-value>)',
+          soft: 'rgb(var(--gp-accent-soft) / <alpha-value>)',
+          deep: 'rgb(var(--gp-accent-deep) / <alpha-value>)',
+          ink: 'rgb(var(--gp-on-accent) / <alpha-value>)', // legible text ON the accent
         },
       },
       fontFamily: {
