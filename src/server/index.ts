@@ -21,6 +21,8 @@ import { examples } from './examples.ts';
 import { openapiSpec } from './openapi.ts';
 import { attachVoice, voiceInfo } from './voice.ts';
 import { createLimiter } from './limit.ts';
+import { isMultiScreenPrompt } from './screen-route.ts';
+import { specNotices } from './validate.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..');
@@ -43,8 +45,7 @@ function readPrompt(body: unknown): string {
 }
 
 // Route obviously multi-screen requests through the plan→expand path.
-const APP_LIKE = /\b(deck|slides?|presentation|onboarding|wizard|walkthrough|stepper|flow|tour|quiz|survey|multi[\s-]?(screen|step|page)|several\s+(screens|pages|steps))\b/i;
-const generateFor = (prompt: string) => (APP_LIKE.test(prompt) ? generator.generateApp(prompt) : generator.generate(prompt));
+const generateFor = (prompt: string) => (isMultiScreenPrompt(prompt) ? generator.generateApp(prompt) : generator.generate(prompt));
 
 const app = express();
 const corsOrigin = process.env.CORS_ORIGIN?.split(',').map((origin) => origin.trim()).filter(Boolean);
@@ -131,6 +132,7 @@ app.post('/api/stream', async (req: Request, res: Response) => {
       count: spec.tree.length,
       source: generator.name,
       degraded: isDegradedSpec(spec),
+      notices: specNotices(spec),
     });
     for (let i = 0; i < spec.tree.length; i++) {
       await delay(STREAM_STAGGER_MS);

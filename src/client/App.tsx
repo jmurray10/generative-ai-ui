@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { Example, UINode, UISpec } from '../shared/spec';
 import { fetchExamples, streamSpec } from './api';
 import { GeneratedApp } from './engine/GeneratedApp';
+import { digestDomControls } from './engine/snapshot';
 import { VoicePanel } from './voice/VoicePanel';
 
 const SURPRISE_PROMPTS = [
@@ -59,6 +60,7 @@ export const App: React.FC = () => {
   const abortRef = useRef<AbortController | null>(null);
   const lastRun = useRef<() => void>(() => {});
   const [voiceOpen, setVoiceOpen] = useState(false);
+  const [notices, setNotices] = useState<string[]>([]);
   const [backend, setBackend] = useState<BackendHealth>({ generator: 'stub', voice: 'off' });
 
   useEffect(() => {
@@ -83,6 +85,7 @@ export const App: React.FC = () => {
     setError(null);
     setShowSpec(false);
     setLog([]);
+    setNotices([]);
     if (!baseSpec) setSpec(null);
 
     streamSpec(
@@ -91,6 +94,7 @@ export const App: React.FC = () => {
         onMeta: (m) => {
           const source = m.degraded ? (m.source === 'stub' ? 'stub' : 'degraded') : m.source;
           setProv({ kind: baseSpec ? 'refine' : 'generate', text: p, source });
+          setNotices(Array.isArray(m.notices) ? m.notices : []);
           setSpec({ title: m.title ?? undefined, initialState: m.initialState, tree: [] });
           setCount(m.count);
           setGenId((n) => n + 1);
@@ -149,6 +153,10 @@ export const App: React.FC = () => {
   const voiceContext = () => {
     const root = document.querySelector('section[aria-label="Generated interface"]');
     let readable = root ? (root as HTMLElement).innerText.replace(/\s+/g, ' ').trim() : '';
+    if (root) {
+      const controls = digestDomControls(root);
+      if (controls) readable = (readable ? readable + ' · ' : '') + controls;
+    }
     // Sandboxed lanes are cross-origin, so innerText can't see inside — but each
     // iframe posts a text digest we stash on its data-artifact-text attribute.
     const iframeText = Array.from(document.querySelectorAll<HTMLElement>('iframe[data-artifact-text]'))
@@ -293,6 +301,9 @@ export const App: React.FC = () => {
 
             {building && <BuildProgress have={spec.tree.length} count={count} log={log} />}
             {!building && prov && <Provenance prov={prov} />}
+            {notices.length > 0 && (
+              <p className="mb-3 text-xs text-amber-200" role="status">{notices.join(' ')}</p>
+            )}
 
             <GeneratedApp key={genId} spec={spec} />
 

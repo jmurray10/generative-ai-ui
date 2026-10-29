@@ -8,7 +8,7 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { formatReadout, gaugePresentation } from './format';
-import { isStepAligned, sliderBounds } from './slider';
+import { isStepAligned, parseTypedNumber, sliderBounds } from './slider';
 import { useGenState } from './state';
 import type { UIAction } from '../../shared/spec';
 
@@ -337,10 +337,20 @@ const Slider: React.FC<Props> = ({ label, stateKey, min = 0, max = 100, step = 1
   const modelMax = Number(max);
   const stepN = Number(step) || 1;
   const val = typeof state[stateKey] === 'number' ? (state[stateKey] as number) : modelMin;
+  const [draft, setDraft] = useState<string | null>(null);
   const bounds = sliderBounds(modelMin, modelMax, val);
   const commit = (raw: number) => {
     if (!Number.isFinite(raw)) return;
     setVar(stateKey, raw);
+  };
+  const onTyped = (raw: string) => {
+    const parsed = parseTypedNumber(raw);
+    if (parsed.partial) {
+      setDraft(raw);
+      return;
+    }
+    setDraft(null);
+    commit(parsed.value);
   };
   return (
     <label className="block">
@@ -349,12 +359,13 @@ const Slider: React.FC<Props> = ({ label, stateKey, min = 0, max = 100, step = 1
         <span className="flex items-center font-medium text-ink">
           {prefix ? <span>{prefix}</span> : null}
           <input
-            type="number"
+            type="text"
+            inputMode="decimal"
             aria-label={typeof label === 'string' ? `${label} value` : 'Value'}
             className="w-24 bg-transparent text-right outline-none"
-            step="any"
-            value={Number.isFinite(val) ? val : 0}
-            onChange={(e) => commit(Number(e.target.value))}
+            value={draft !== null ? draft : String(Number.isFinite(val) ? val : 0)}
+            onChange={(e) => onTyped(e.target.value)}
+            onBlur={() => setDraft(null)}
           />
           {suffix ? <span>{suffix}</span> : null}
         </span>
@@ -419,16 +430,21 @@ const TextInput: React.FC<Props> = ({ label, stateKey, placeholder }) => {
 const Toggle: React.FC<Props> = ({ label, stateKey }) => {
   const { state, setVar } = useGenState();
   const on = Boolean(state[stateKey]);
+  const name = typeof label === 'string' && label.trim()
+    ? label
+    : typeof stateKey === 'string' && stateKey
+      ? stateKey
+      : 'Toggle';
   return (
     <button
       type="button"
       role="switch"
       aria-checked={on}
-      aria-label={label}
+      aria-label={name}
       onClick={() => setVar(stateKey, !on)}
       className="flex w-full items-center justify-between gap-3 text-sm text-muted"
     >
-      <span>{label}</span>
+      <span>{name}</span>
       <span className={`relative h-6 w-11 rounded-full transition-colors ${on ? 'bg-accent' : 'bg-edge'}`}>
         <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${on ? 'left-[1.375rem]' : 'left-0.5'}`} />
       </span>
@@ -528,9 +544,9 @@ const WIDGET_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'u
 const ARTIFACT_CSP = [
   "default-src 'none'",
   "script-src 'unsafe-inline' 'unsafe-eval' blob: https://unpkg.com https://cdn.tailwindcss.com https://esm.sh",
-  "style-src 'unsafe-inline' https://cdn.tailwindcss.com",
+  "style-src 'unsafe-inline' https://cdn.tailwindcss.com https://fonts.googleapis.com",
   "img-src data: blob: https://unpkg.com https://cdn.tailwindcss.com https://esm.sh",
-  "font-src data: https://cdn.tailwindcss.com https://esm.sh",
+  "font-src data: https://cdn.tailwindcss.com https://esm.sh https://fonts.gstatic.com",
   "connect-src https://unpkg.com https://cdn.tailwindcss.com https://esm.sh https://api.open-meteo.com https://api.coingecko.com https://api.github.com",
   "worker-src blob:",
   "form-action 'none'",
@@ -582,7 +598,7 @@ const CustomWidget: React.FC<Props> = ({ html = '', css = '', script = '', heigh
 // Posts a text digest of the iframe's content to the parent, so the voice agent's
 // read_ui can "see" inside the otherwise cross-origin sandbox.
 const TEXT_POSTER =
-  'var __lt=0;function __pt(){try{var n=Date.now();if(n-__lt<700)return;__lt=n;parent.postMessage({__artifactText:(document.body.innerText||"").replace(/\\s+/g," ").trim().slice(0,3000)},"*");}catch(e){}}setTimeout(__pt,800);setTimeout(__pt,2500);try{new MutationObserver(__pt).observe(document.documentElement,{subtree:true,childList:true,characterData:true});}catch(e){}';
+  'var __lt=0;function __digest(){var parts=[];var nodes=document.querySelectorAll("input,textarea,select");for(var i=0;i<nodes.length;i++){var el=nodes[i];var t=(el.type||"").toLowerCase();if(t==="hidden"||t==="button"||t==="submit"||t==="range"||t==="file")continue;var name=el.getAttribute("aria-label")||el.getAttribute("name")||el.getAttribute("placeholder")||el.id||("field "+(i+1));var v="";if(t==="checkbox"){v=el.checked?"on":"off";}else if(t==="radio"){if(!el.checked)continue;v=el.value||"on";}else{v=el.value||"";}if(v!=="")parts.push(name+": "+v);}var text=((document.body&&document.body.innerText)||"").replace(/\\s+/g," ").trim();if(parts.length)text=(text?text+" · ":"")+parts.join(" · ");return text.slice(0,3000);}function __pt(){try{var n=Date.now();if(n-__lt<700)return;__lt=n;parent.postMessage({__artifactText:__digest()},"*");}catch(e){}}setTimeout(__pt,800);setTimeout(__pt,2500);try{new MutationObserver(__pt).observe(document.documentElement,{subtree:true,childList:true,characterData:true});document.addEventListener("input",__pt,true);document.addEventListener("change",__pt,true);}catch(e){}';
 
 // A sandbox without allow-same-origin throws on localStorage/sessionStorage and
 // has no nice way to surface errors. Install in-memory storage shims + a small

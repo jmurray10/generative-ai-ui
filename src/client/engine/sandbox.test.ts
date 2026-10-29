@@ -9,6 +9,8 @@ test('custom widget documents block network and neutralize a script closer', () 
   assert.match(doc, /connect-src 'none'/);
   assert.doesNotMatch(doc, /unsafe-eval/);
   assert.match(doc, /<\\\/script>/);
+  assert.match(doc, /el\.value/);
+  assert.match(doc, /addEventListener\("input"/);
 });
 
 test('react artifact CSP allows Babel eval and blob modules, not every origin', () => {
@@ -24,5 +26,7 @@ test('react artifact CSP allows Babel eval and blob modules, not every origin', 
   assert.match(modular, /blob:/);
   const policy = modular.match(/Content-Security-Policy" content="([^"]+)"/)?.[1] ?? '';
   assert.match(policy, /connect-src [^;]*https:\/\/esm\.sh/);
+  assert.match(policy, /style-src [^;]*fonts\.googleapis\.com/);
+  assert.match(policy, /font-src [^;]*fonts\.gstatic\.com/);
   assert.doesNotMatch(policy, /connect-src https:(?:\s|;|$)/);
 });

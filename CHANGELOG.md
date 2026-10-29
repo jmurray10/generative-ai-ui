@@ -21,6 +21,13 @@ All notable changes to this project are documented here. The format follows
   returned to the browser.
 
 ### Fixed
+- Artifact frames may load Google Fonts (`fonts.googleapis.com` stylesheets and
+  `fonts.gstatic.com` files). Other origins stay blocked.
+- Multi-screen routing no longer treats a quiz or a "flow field" as several pages.
+- Voice snapshots include input, textarea, and select values from artifacts.
+- The slider number box can be cleared or hold a leading minus while typing.
+- Specs that omit `initialState` for an input get a default and a visible notice.
+- Toggles without a label use their state key as the accessible name.
 - ReactArtifact documents allow `'unsafe-eval'` and `blob:` so Babel and the
   import lane can run. The frame stays an opaque-origin sandbox, and
   `connect-src` is limited to the CDN hosts plus the documented public data APIs.
