@@ -1,9 +1,10 @@
 import { useCallback, useRef, useState } from 'react';
 import { AudioPlayer, MicStreamer } from './audio';
+import { applyTranscript, type TranscriptLine } from './transcript';
 import type { UISpec } from '../../shared/spec';
 
 export type VoiceStatus = 'idle' | 'connecting' | 'live' | 'error';
-export interface Transcript { who: 'user' | 'ai'; text: string; partial?: boolean }
+export type Transcript = TranscriptLine;
 
 interface Opts {
   getContext: () => { spec: UISpec | null; readable: string };
@@ -74,12 +75,13 @@ export function useLiveVoice(opts: Opts) {
       } else if (m.type === 'interrupted') {
         player.clear();
       } else if (m.type === 'transcript') {
-        const line: Transcript = { who: m.who, text: String(m.text ?? ''), partial: Boolean(m.partial) };
-        setTranscripts((t) => {
-          const last = t[t.length - 1];
-          if (last && last.who === line.who && last.partial) return [...t.slice(0, -1), line].slice(-8);
-          return [...t, line].slice(-8);
-        });
+        const line: Transcript = {
+          who: m.who === 'ai' ? 'ai' : 'user',
+          text: String(m.text ?? ''),
+          partial: Boolean(m.partial),
+          ...(typeof m.itemId === 'string' && m.itemId ? { itemId: m.itemId } : {}),
+        };
+        setTranscripts((t) => applyTranscript(t, line));
       } else if (m.type === 'spec') {
         optsRef.current.onSpec(m.spec);
       } else if (m.type === 'readRequest') {

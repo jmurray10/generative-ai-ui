@@ -10,7 +10,7 @@
     "dev:client": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/server/*.test.ts src/client/engine/*.test.ts",
+    "test": "tsx --test src/server/*.test.ts src/client/engine/*.test.ts src/client/voice/*.test.ts",
     "start": "tsx src/server/index.ts",
     "preview": "vite preview",
     "e2e": "node scripts/e2e.mjs",

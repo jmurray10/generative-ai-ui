@@ -75,7 +75,8 @@ export function mapGrokServerEvent(event: Record<string, unknown>, assistantTran
       const text = typeof event.transcript === 'string' ? event.transcript : '';
       if (!text) return keep;
       const partial = type.endsWith('.updated');
-      return { ...keep, toClient: [{ type: 'transcript', who: 'user', text, partial }] };
+      const itemId = typeof event.item_id === 'string' ? event.item_id : undefined;
+      return { ...keep, toClient: [{ type: 'transcript', who: 'user', text, partial, ...(itemId ? { itemId } : {}) }] };
     }
     case 'input_audio_buffer.speech_started':
       return { assistantTranscript: '', toClient: [{ type: 'interrupted' }] };
