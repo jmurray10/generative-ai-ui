@@ -2,6 +2,7 @@
  * Grok speech-to-speech bridge.
  *
  * Browser `/voice` WebSocket  ↔  `wss://api.x.ai/v1/realtime?model=grok-voice-latest`
+ * (`grok-voice-latest` routes to `grok-voice-think-fast-2.0` in the Oct 10, 2026 docs).
  *
  * The browser already streams 16 kHz PCM up and plays 24 kHz PCM down (the same
  * rates Gemini Live used). The session pins those rates so the client audio

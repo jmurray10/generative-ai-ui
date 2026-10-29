@@ -102,7 +102,7 @@ model" notice — there are no pre-baked UIs. The default provider is **Grok**:
 GENERATOR=grok          # default; "stub" stays offline, "gemini" is opt-in
 XAI_API_KEY=...         # required for live generation and Grok voice
 GROK_MODEL=grok-4.7     # Responses API flagship (Oct 2026)
-GROK_VOICE_MODEL=grok-voice-latest   # speech-to-speech, alias of grok-voice-3.0
+GROK_VOICE_MODEL=grok-voice-latest   # speech-to-speech alias (routes to grok-voice-think-fast-2.0)
 ```
 
 `VOICE_PROVIDER=gemini` plus `GEMINI_API_KEY` keeps the previous Gemini Live

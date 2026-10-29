@@ -66,9 +66,9 @@ never decides "what to do next" — it only fills in content.
 ## Path 2 — voice (agentic loop)
 
 The default voice path is Grok **speech-to-speech** (`wss://api.x.ai/v1/realtime`, model
-`grok-voice-latest`, which aliases `grok-voice-3.0`, voice `eve`). It runs a tool-calling
-loop over a WebSocket. The model is given three tools and a system instruction telling it to
-*act, then narrate*:
+`grok-voice-latest`, voice `eve`). As of the Oct 10, 2026 docs, that alias routes to
+`grok-voice-think-fast-2.0`. It runs a tool-calling loop over a WebSocket. The model is
+given three tools and a system instruction telling it to *act, then narrate*:
 
 | Tool | Effect |
 | --- | --- |
@@ -111,7 +111,7 @@ fixed, audited rendering boundary — is the whole design.
 | `GROK_MODEL` | `grok-4.7` | Text model. |
 | `GROK_REASONING_EFFORT` | `low` | `low`, `medium`, `high`, or `xhigh`. |
 | `VOICE_PROVIDER` | Grok when `XAI_API_KEY` is set, else off | `grok`, `gemini`, or `off`. |
-| `GROK_VOICE_MODEL` | `grok-voice-latest` | Speech-to-speech model (`grok-voice-3.0`). |
+| `GROK_VOICE_MODEL` | `grok-voice-latest` | Speech-to-speech alias. Oct 10, 2026 docs route it to `grok-voice-think-fast-2.0`. |
 | `GROK_VOICE` | `eve` | Built-in voice id. |
 | `GROK_VOICE_REASONING` | `none` | `none` or `high`. |
 | `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) | — | Only for `GENERATOR=gemini` / `VOICE_PROVIDER=gemini`. |
