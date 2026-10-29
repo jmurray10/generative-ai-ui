@@ -56,8 +56,8 @@ DISPLAY
 - Badge { label, tone? }                     // tone: accent | muted | good | warn
 - List { items: string[], ordered? }
 - KeyValue { rows: [{label, value}] }        // static label/value pairs
-- ProgressBar { label?, max?, suffix? }      // set fill via bind.value (0..max)
-- Gauge { label?, min?, max?, suffix? }       // radial gauge; set via bind.value
+- ProgressBar { label?, max?, prefix?, suffix? } // set fill via bind.value; put $ in prefix, not suffix
+- Gauge { label?, min?, max?, prefix?, suffix? } // readout is the real bind.value even past min/max; do not clamp it with min()/max()
 CHARTS (data is STATIC props — the expression layer cannot bind arrays)
 - BarChart { data: [{label, value}], color? }
 - LineChart { data: [{label?, value}], color? }

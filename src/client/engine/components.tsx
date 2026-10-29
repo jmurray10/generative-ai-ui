@@ -7,6 +7,8 @@
  * Keep this list in sync with src/server/prompt.ts and src/server/validate.ts.
  */
 import React, { useEffect, useRef, useState } from 'react';
+import { formatReadout, gaugePresentation } from './format';
+import { isStepAligned, sliderBounds } from './slider';
 import { useGenState } from './state';
 import type { UIAction } from '../../shared/spec';
 
@@ -39,11 +41,7 @@ function safeColor(color: any, fallback: string): string {
   return luminance(color) < 0.16 ? fallback : color;
 }
 function fmt(n: number, decimals?: number): string {
-  const opts: Intl.NumberFormatOptions =
-    typeof decimals === 'number'
-      ? { minimumFractionDigits: decimals, maximumFractionDigits: decimals }
-      : { maximumFractionDigits: 2 };
-  return new Intl.NumberFormat('en-US', opts).format(n);
+  return formatReadout(n, '', '', decimals);
 }
 
 // ===== Layout =============================================================
@@ -141,17 +139,15 @@ const Text: React.FC<Props> = ({ value, stateKey }) => {
 };
 
 const Stat: React.FC<Props> = ({ label, value, prefix = '', suffix = '', decimals }) => {
-  let shown: React.ReactNode = value;
-  if (typeof value === 'number') shown = fmt(value, decimals);
-  if (value === undefined || value === null) shown = '—';
+  const shown = typeof value === 'number'
+    ? formatReadout(value, String(prefix ?? ''), String(suffix ?? ''), typeof decimals === 'number' ? decimals : undefined)
+    : value === undefined || value === null
+      ? '—'
+      : value;
   return (
     <div className="min-w-[7rem] flex-1 rounded-xl border border-edge bg-canvas/60 px-4 py-3">
       <div className="text-xs uppercase tracking-wide text-muted">{label}</div>
-      <div className="mt-1 text-2xl font-semibold tabular-nums text-ink">
-        {prefix}
-        {shown}
-        {suffix}
-      </div>
+      <div className="mt-1 text-2xl font-semibold tabular-nums text-ink">{shown}</div>
     </div>
   );
 };
@@ -193,14 +189,16 @@ const KeyValue: React.FC<Props> = ({ rows }) => {
   );
 };
 
-const ProgressBar: React.FC<Props> = ({ label, value = 0, max = 100, suffix = '' }) => {
-  const pct = Math.max(0, Math.min(100, (Number(value) / (Number(max) || 100)) * 100));
+const ProgressBar: React.FC<Props> = ({ label, value = 0, max = 100, prefix = '', suffix = '' }) => {
+  const n = typeof value === 'number' ? value : Number(value) || 0;
+  const pct = Math.max(0, Math.min(100, (n / (Number(max) || 100)) * 100));
+  const readout = formatReadout(n, String(prefix ?? ''), String(suffix ?? ''));
   return (
     <div>
       {label && (
         <div className="mb-1 flex justify-between text-sm">
           <span className="text-muted">{label}</span>
-          <span className="tabular-nums text-ink">{fmt(typeof value === 'number' ? value : 0)}{suffix}</span>
+          <span className="tabular-nums text-ink">{readout}</span>
         </div>
       )}
       <div
@@ -217,23 +215,23 @@ const ProgressBar: React.FC<Props> = ({ label, value = 0, max = 100, suffix = ''
   );
 };
 
-const Gauge: React.FC<Props> = ({ label, value = 0, min = 0, max = 100, suffix = '' }) => {
-  const v = Number(value), lo = Number(min), hi = Number(max);
-  const frac = Math.max(0, Math.min(1, (v - lo) / ((hi - lo) || 1)));
+const Gauge: React.FC<Props> = ({ label, value = 0, min = 0, max = 100, prefix = '', suffix = '' }) => {
+  const shown = gaugePresentation(Number(value), Number(min), Number(max), String(prefix ?? ''), String(suffix ?? ''));
   const cx = 80, cy = 80, r = 62;
   const pt = (ang: number) => [cx + r * Math.cos(ang), cy - r * Math.sin(ang)];
-  const ang = Math.PI * (1 - frac);
+  const ang = Math.PI * (1 - shown.fraction);
   const [sx, sy] = pt(Math.PI);
   const [ex, ey] = pt(0);
   const [vx, vy] = pt(ang);
   return (
     <div className="flex flex-col items-center">
-      <svg width="160" height="92" viewBox="0 0 160 92" role="img" aria-label={`${label || 'Gauge'}: ${isFinite(v) ? v : 0}${suffix}`}>
+      <svg width="160" height="92" viewBox="0 0 160 92" role="img" aria-label={`${label || 'Gauge'}: ${shown.text}`}>
         <path d={`M ${sx} ${sy} A ${r} ${r} 0 0 1 ${ex} ${ey}`} fill="none" stroke="#262635" strokeWidth="12" strokeLinecap="round" />
         <path d={`M ${sx} ${sy} A ${r} ${r} 0 0 1 ${vx} ${vy}`} fill="none" stroke="#7c5cff" strokeWidth="12" strokeLinecap="round" />
         <circle cx={vx} cy={vy} r="6" fill="#9d86ff" />
       </svg>
-      <div className="-mt-1 text-2xl font-semibold text-ink">{isFinite(v) ? v : 0}{suffix}</div>
+      <div className="-mt-1 text-2xl font-semibold text-ink" data-gauge-value={Number(value)}>{shown.text}</div>
+      {shown.outside && <div className="text-[10px] text-muted">Outside the {min}–{max} scale</div>}
       {label && <div className="text-xs uppercase tracking-wide text-muted">{label}</div>}
     </div>
   );
@@ -335,14 +333,46 @@ const PieChart: React.FC<Props> = ({ data }) => {
 // ===== Input (write to state) ============================================
 const Slider: React.FC<Props> = ({ label, stateKey, min = 0, max = 100, step = 1, prefix = '', suffix = '' }) => {
   const { state, setVar } = useGenState();
-  const val = typeof state[stateKey] === 'number' ? (state[stateKey] as number) : Number(min);
+  const modelMin = Number(min);
+  const modelMax = Number(max);
+  const stepN = Number(step) || 1;
+  const val = typeof state[stateKey] === 'number' ? (state[stateKey] as number) : modelMin;
+  const bounds = sliderBounds(modelMin, modelMax, val);
+  const commit = (raw: number) => {
+    if (!Number.isFinite(raw)) return;
+    setVar(stateKey, raw);
+  };
   return (
     <label className="block">
-      <div className="mb-1 flex items-center justify-between text-sm">
+      <div className="mb-1 flex items-center justify-between gap-3 text-sm">
         <span className="text-muted">{label}</span>
-        <span className="font-medium text-ink">{prefix}{val}{suffix}</span>
+        <span className="flex items-center font-medium text-ink">
+          {prefix ? <span>{prefix}</span> : null}
+          <input
+            type="number"
+            aria-label={typeof label === 'string' ? `${label} value` : 'Value'}
+            className="w-24 bg-transparent text-right outline-none"
+            step="any"
+            value={Number.isFinite(val) ? val : 0}
+            onChange={(e) => commit(Number(e.target.value))}
+          />
+          {suffix ? <span>{suffix}</span> : null}
+        </span>
       </div>
-      <input type="range" className="w-full accent-accent" min={min} max={max} step={step} value={val} onChange={(e) => setVar(stateKey, Number(e.target.value))} />
+      <input
+        type="range"
+        className="w-full accent-accent"
+        min={bounds.min}
+        max={bounds.max}
+        step={isStepAligned(val, bounds.min, stepN) ? stepN : 'any'}
+        value={val}
+        onChange={(e) => commit(Number(e.target.value))}
+      />
+      {bounds.widened && (
+        <p className="mt-1 text-[11px] text-muted">
+          Outside the suggested {modelMin}–{modelMax}. Showing {prefix}{val}{suffix}; the slider includes it.
+        </p>
+      )}
     </label>
   );
 };
@@ -350,10 +380,27 @@ const Slider: React.FC<Props> = ({ label, stateKey, min = 0, max = 100, step = 1
 const NumberInput: React.FC<Props> = ({ label, stateKey, min, max, step = 1 }) => {
   const { state, setVar } = useGenState();
   const val = typeof state[stateKey] === 'number' ? (state[stateKey] as number) : 0;
+  const lo = min == null ? null : Number(min);
+  const hi = max == null ? null : Number(max);
+  const outside = (lo != null && val < lo) || (hi != null && val > hi);
   return (
     <label className="block text-sm">
       <span className="mb-1 block text-muted">{label}</span>
-      <input type="number" className="w-full rounded-lg border border-edge bg-canvas/60 px-3 py-2 text-ink outline-none focus:border-accent" min={min} max={max} step={step} value={val} onChange={(e) => setVar(stateKey, Number(e.target.value))} />
+      <input
+        type="number"
+        className="w-full rounded-lg border border-edge bg-canvas/60 px-3 py-2 text-ink outline-none focus:border-accent"
+        step="any"
+        value={val}
+        onChange={(e) => {
+          const n = Number(e.target.value);
+          if (Number.isFinite(n)) setVar(stateKey, n);
+        }}
+      />
+      {outside && (
+        <p className="mt-1 text-[11px] text-muted">
+          Outside the suggested {lo ?? '…'}–{hi ?? '…'}. Showing {val} (step {step} is not applied to typed values).
+        </p>
+      )}
     </label>
   );
 };
@@ -472,8 +519,23 @@ const Button: React.FC<Props> = ({ label, action, variant = 'solid' }) => {
 };
 
 // ===== Sandboxed escape hatch ============================================
-const WIDGET_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:";
-const ARTIFACT_CSP = "default-src 'none'; script-src 'unsafe-inline' https://unpkg.com https://cdn.tailwindcss.com https://esm.sh; style-src 'unsafe-inline' https://cdn.tailwindcss.com; img-src data: blob: https:; font-src data: https:; media-src blob: https:; connect-src https:";
+const WIDGET_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; form-action 'none'";
+// The artifact iframe is an opaque origin (sandbox=allow-scripts, no allow-same-origin),
+// so it cannot read the parent page. Two runtime needs still have to be allowed
+// *inside that frame*: Babel's `new Function` ('unsafe-eval') and the module lane's
+// `import(blob:)` ('blob:'). connect-src is the CDN hosts plus the public data APIs
+// named in the system prompt — not every https origin.
+const ARTIFACT_CSP = [
+  "default-src 'none'",
+  "script-src 'unsafe-inline' 'unsafe-eval' blob: https://unpkg.com https://cdn.tailwindcss.com https://esm.sh",
+  "style-src 'unsafe-inline' https://cdn.tailwindcss.com",
+  "img-src data: blob: https://unpkg.com https://cdn.tailwindcss.com https://esm.sh",
+  "font-src data: https://cdn.tailwindcss.com https://esm.sh",
+  "connect-src https://unpkg.com https://cdn.tailwindcss.com https://esm.sh https://api.open-meteo.com https://api.coingecko.com https://api.github.com",
+  "worker-src blob:",
+  "form-action 'none'",
+  "base-uri 'none'",
+].join('; ');
 
 function neutralizeClosers(source: string): string {
   return source.replace(/<\/(script|style)/gi, '<\\/$1');

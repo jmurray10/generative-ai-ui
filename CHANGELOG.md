@@ -21,6 +21,15 @@ All notable changes to this project are documented here. The format follows
   returned to the browser.
 
 ### Fixed
+- ReactArtifact documents allow `'unsafe-eval'` and `blob:` so Babel and the
+  import lane can run. The frame stays an opaque-origin sandbox, and
+  `connect-src` is limited to the CDN hosts plus the documented public data APIs.
+- Gauge and progress readouts use a consistent number format. Currency symbols
+  in `suffix` render as a prefix. A gauge past its scale still shows the real value.
+- Typed slider and number values outside the model min/max/step are kept, and
+  the slider track widens to include them.
+- When a model response contains more than one JSON value, generation keeps the
+  most complete one and logs what it dropped.
 - `scripts/live-grok.mjs` uses the `ws` package, so the live gate runs on Node 20
   (no global `WebSocket`) and on Node 22.
 - Voice transcripts update one line per utterance. Cumulative user text such as

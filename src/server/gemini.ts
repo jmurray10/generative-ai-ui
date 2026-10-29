@@ -5,7 +5,7 @@
 import { GoogleGenAI } from '@google/genai';
 import type { UISpec } from '../shared/spec.ts';
 import { geminiKey, geminiModel } from './config.ts';
-import { extractJSON } from './json.ts';
+import { inspectJSON } from './json.ts';
 import { SYSTEM_PROMPT } from './prompt.ts';
 import { buildAppFromPlan, echoSpec } from './spec-build.ts';
 import type { Generator } from './types.ts';
@@ -48,7 +48,9 @@ export class GeminiGenerator implements Generator {
         console.warn(`[gemini] finishReason=${result.finishReason} (output may be truncated or blocked)`);
       }
       if (!text.trim()) throw new Error('Model returned an empty response.');
-      const parsed = JSON.parse(extractJSON(text));
+      const extracted = inspectJSON(text);
+      if (extracted.warnings.length) console.warn('[gemini]', extracted.warnings);
+      const parsed = JSON.parse(extracted.json);
       const { spec, warnings } = validateSpec(parsed);
       if (warnings.length) console.warn(`[gemini] ${warnings.length} spec warning(s):`, warnings);
       return spec;
@@ -71,7 +73,9 @@ export class GeminiGenerator implements Generator {
         console.warn(`[gemini] finishReason=${result.finishReason} (output may be truncated or blocked)`);
       }
       if (!text.trim()) throw new Error('Model returned an empty response.');
-      const parsed = JSON.parse(extractJSON(text));
+      const extracted = inspectJSON(text);
+      if (extracted.warnings.length) console.warn('[gemini refine]', extracted.warnings);
+      const parsed = JSON.parse(extracted.json);
       const { spec: out, warnings } = validateSpec(parsed);
       if (warnings.length) console.warn(`[gemini refine] ${warnings.length} warning(s):`, warnings);
       return out;
@@ -97,7 +101,9 @@ export class GeminiGenerator implements Generator {
         config: { temperature: 0.5, maxOutputTokens: 2048, responseMimeType: 'application/json' },
       });
       const planText = result.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
-      const plan = JSON.parse(extractJSON(planText));
+      const extractedPlan = inspectJSON(planText);
+      if (extractedPlan.warnings.length) console.warn('[gemini] plan:', extractedPlan.warnings);
+      const plan = JSON.parse(extractedPlan.json);
       return await buildAppFromPlan(plan, prompt, (screen) => this.generate(screen));
     } catch (err) {
       console.error('[gemini generateApp] failed:', (err as Error).message);

@@ -9,7 +9,7 @@
  */
 import OpenAI from 'openai';
 import type { UISpec } from '../shared/spec.ts';
-import { extractJSON } from './json.ts';
+import { inspectJSON } from './json.ts';
 import { SYSTEM_PROMPT } from './prompt.ts';
 import { validateSpec } from './validate.ts';
 import type { Generator } from './types.ts';
@@ -126,7 +126,9 @@ export class GrokGenerator implements Generator {
     try {
       text = await this.complete(user, 'ui_spec', UI_SCHEMA, 16384, SYSTEM_PROMPT);
       if (!text.trim()) throw new Error('Model returned an empty response.');
-      const parsed = JSON.parse(extractJSON(text));
+      const extracted = inspectJSON(text);
+      if (extracted.warnings.length) console.warn(`[grok] ${logLabel}:`, extracted.warnings);
+      const parsed = JSON.parse(extracted.json);
       const { spec, warnings } = validateSpec(parsed);
       if (warnings.length) console.warn(`[grok] ${logLabel}: ${warnings.length} spec warning(s):`, warnings);
       return spec;
@@ -159,7 +161,9 @@ export class GrokGenerator implements Generator {
         PLAN_SCHEMA,
         2048,
       );
-      const plan = JSON.parse(extractJSON(planText));
+      const extractedPlan = inspectJSON(planText);
+      if (extractedPlan.warnings.length) console.warn('[grok] plan:', extractedPlan.warnings);
+      const plan = JSON.parse(extractedPlan.json);
       return await buildAppFromPlan(plan, prompt, (screen) => this.generate(screen));
     } catch (err) {
       console.error('[grok] generateApp failed:', (err as Error).message);
