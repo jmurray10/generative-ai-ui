@@ -3,6 +3,7 @@ import { useLiveVoice } from './useLiveVoice';
 import type { UISpec } from '../../shared/spec';
 
 interface Props {
+  providerLabel: string;
   getContext: () => { spec: UISpec | null; readable: string };
   onSpec: (s: UISpec) => void;
   specVersion: number;
@@ -16,7 +17,7 @@ const statusLabel: Record<string, string> = {
   error: 'Error',
 };
 
-export const VoicePanel: React.FC<Props> = ({ getContext, onSpec, specVersion, onClose }) => {
+export const VoicePanel: React.FC<Props> = ({ providerLabel, getContext, onSpec, specVersion, onClose }) => {
   const voice = useLiveVoice({ getContext, onSpec });
   const [text, setText] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -56,27 +57,28 @@ export const VoicePanel: React.FC<Props> = ({ getContext, onSpec, specVersion, o
   return (
     <div
       role="dialog"
-      aria-label="Gemini voice assistant"
+      aria-modal="true"
+      aria-label={`${providerLabel} assistant`}
       onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}
       className="fixed bottom-4 left-4 right-4 z-40 max-h-[70vh] overflow-hidden rounded-2xl border border-edge bg-panel/95 p-4 shadow-2xl shadow-black/40 backdrop-blur sm:left-auto sm:w-80"
     >
       <div className="mb-2 flex items-center justify-between">
         <span role="status" className="flex items-center gap-2 text-sm font-medium text-ink">
           <span className={`h-2 w-2 rounded-full ${dotClass}`} />
-          Gemini Voice · {statusLabel[voice.status]}
+          {providerLabel} · {statusLabel[voice.status]}
         </span>
-        <button onClick={onClose} aria-label="Close voice" className="rounded px-1 text-xs text-muted hover:text-ink">✕</button>
+        <button type="button" onClick={onClose} aria-label="Close voice" className="rounded px-1 text-xs text-muted hover:text-ink">✕</button>
       </div>
 
       {voice.status === 'error' ? (
         <div className="mb-2 flex items-center justify-between rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1.5 text-[11px] text-red-300">
-          <span>Voice disconnected.</span>
-          <button onClick={() => voice.start()} className="rounded border border-red-400/40 px-1.5 py-0.5 hover:bg-red-500/20">Reconnect</button>
+          <span>{voice.error ?? 'Voice disconnected.'}</span>
+          <button type="button" onClick={() => voice.start()} className="rounded border border-red-400/40 px-1.5 py-0.5 hover:bg-red-500/20">Reconnect</button>
         </div>
       ) : (
         <p className="mb-2 text-[11px] text-muted" aria-live="polite">
           {voice.micOk
-            ? 'Speak or type — “read me the total”, “make it dark”, “change the tip to 25 percent”. Gemini answers in its own voice and updates the screen.'
+            ? `Speak or type — “read me the total”, “make it dark”, “change the tip to 25 percent”. ${providerLabel} answers in its own voice and updates the screen.`
             : '🔇 Mic blocked — type your command below. (Allow the mic to talk to it.)'}
         </p>
       )}
@@ -85,6 +87,7 @@ export const VoicePanel: React.FC<Props> = ({ getContext, onSpec, specVersion, o
       <div className="mb-2 flex flex-wrap gap-1.5">
         {['Read me the data', 'Make it dark', 'Add a reset button'].map((c) => (
           <button
+            type="button"
             key={c}
             onClick={() => voice.sendText(c)}
             className="rounded-full border border-edge bg-canvas/50 px-2 py-0.5 text-[11px] text-muted hover:border-accent hover:text-ink"
@@ -96,11 +99,17 @@ export const VoicePanel: React.FC<Props> = ({ getContext, onSpec, specVersion, o
 
       <div role="log" aria-live="polite" aria-atomic="false" className="mb-2 max-h-32 space-y-1 overflow-y-auto text-xs">
         {voice.transcripts.length === 0 ? (
-          <div className="text-muted">{voice.status === 'live' ? (voice.micOk ? 'Listening…' : 'Ready — type a command.') : 'Connecting to Gemini Live…'}</div>
+          <div className="text-muted">
+            {voice.status === 'error'
+              ? 'Voice is unavailable.'
+              : voice.status === 'live'
+                ? (voice.micOk ? 'Listening…' : 'Ready — type a command.')
+                : `Connecting to ${providerLabel}…`}
+          </div>
         ) : (
           voice.transcripts.map((t, i) => (
             <div key={i} className={t.who === 'ai' ? 'text-accent-soft' : 'text-muted'}>
-              <span className="opacity-60">{t.who === 'ai' ? 'Gemini' : 'You'}:</span> {t.text}
+              <span className="opacity-60">{t.who === 'ai' ? providerLabel : 'You'}:</span> {t.text}
             </div>
           ))
         )}

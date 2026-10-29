@@ -7,7 +7,15 @@ services:
       - "8080:8080"
     environment:
       - PORT=8080
-      - GENERATOR=${GENERATOR:-stub}
+      - GENERATOR=${GENERATOR:-grok}
+      - XAI_API_KEY=${XAI_API_KEY:-}
+      - XAI_BASE_URL=${XAI_BASE_URL:-}
+      - GROK_MODEL=${GROK_MODEL:-grok-4.7}
+      - GROK_REASONING_EFFORT=${GROK_REASONING_EFFORT:-low}
+      - VOICE_PROVIDER=${VOICE_PROVIDER:-}
+      - GROK_VOICE_MODEL=${GROK_VOICE_MODEL:-grok-voice-latest}
+      - GROK_VOICE=${GROK_VOICE:-eve}
+      - GROK_VOICE_REASONING=${GROK_VOICE_REASONING:-none}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.5-flash}

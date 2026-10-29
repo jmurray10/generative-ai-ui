@@ -56,8 +56,8 @@ DISPLAY
 - Badge { label, tone? }                     // tone: accent | muted | good | warn
 - List { items: string[], ordered? }
 - KeyValue { rows: [{label, value}] }        // static label/value pairs
-- ProgressBar { label?, max?, suffix? }      // set fill via bind.value (0..max)
-- Gauge { label?, min?, max?, suffix? }       // radial gauge; set via bind.value
+- ProgressBar { label?, max?, prefix?, suffix? } // set fill via bind.value; put $ in prefix, not suffix
+- Gauge { label?, min?, max?, prefix?, suffix? } // readout is the real bind.value even past min/max; do not clamp it with min()/max()
 CHARTS (data is STATIC props — the expression layer cannot bind arrays)
 - BarChart { data: [{label, value}], color? }
 - LineChart { data: [{label?, value}], color? }
@@ -66,7 +66,7 @@ INPUT (write to state)
 - Slider { label, stateKey, min, max, step, prefix?, suffix? }
 - NumberInput { label, stateKey, min?, max?, step? }
 - TextInput { label, stateKey, placeholder? }   // writes a string
-- Toggle { label, stateKey }                     // boolean
+- Toggle { label, stateKey }                     // boolean; label is required and is the accessible name
 - Select { label, stateKey, options: [{label, value}] }
 - RadioGroup { label, stateKey, options: [{label, value}] }
 - ColorPicker { label, stateKey }                // writes a hex string
@@ -131,7 +131,9 @@ RULES:
 - Prefer the safe registry components; reach for CustomWidget only when necessary.
 - Every node needs a unique id and a type from the list above. Never invent types or props.
 - Keep it focused and genuinely functional. Wire inputs to outputs through state.
-- Seed every state variable used by inputs or expressions in "initialState".
+- Seed every state variable used by inputs or expressions in "initialState" with a realistic starting number, not null. A quiz or calculator is ONE screen unless the user asked for several pages.
+- In ReactArtifact markup, every input, select, textarea, and switch needs a visible label or aria-label. A Google Font stylesheet from fonts.googleapis.com is allowed.
+- Guard divide-by-zero and empty inputs so a formula does not display a misleading $0.
 
 EXAMPLE 1 — "a tip calculator that splits the bill":
 {"title":"Tip Calculator","theme":{"bg":"#0f1729","surface":"#1e293b","text":"#f1f5f9","muted":"#94a3b8","accent":"#38bdf8"},"initialState":{"bill":60,"tipPct":18,"people":3},"tree":[{"id":"card","type":"Card","props":{"title":"Tip Calculator","subtitle":"Split the bill"},"children":[{"id":"bill","type":"Slider","props":{"label":"Bill","stateKey":"bill","min":0,"max":300,"step":1,"prefix":"$"}},{"id":"tip","type":"Slider","props":{"label":"Tip","stateKey":"tipPct","min":0,"max":40,"step":1,"suffix":"%"}},{"id":"ppl","type":"Slider","props":{"label":"People","stateKey":"people","min":1,"max":20,"step":1}},{"id":"out","type":"Row","children":[{"id":"total","type":"Stat","props":{"label":"Total","prefix":"$","decimals":2},"bind":{"value":"bill * (1 + tipPct/100)"}},{"id":"per","type":"Stat","props":{"label":"Per person","prefix":"$","decimals":2},"bind":{"value":"bill * (1 + tipPct/100) / people"}}]}]}]}

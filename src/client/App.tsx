@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { Example, UINode, UISpec } from '../shared/spec';
 import { fetchExamples, streamSpec } from './api';
 import { GeneratedApp } from './engine/GeneratedApp';
+import { digestDomControls } from './engine/snapshot';
 import { VoicePanel } from './voice/VoicePanel';
 
 const SURPRISE_PROMPTS = [
@@ -20,6 +21,11 @@ const SURPRISE_PROMPTS = [
 ];
 
 type Prov = { kind: 'generate' | 'refine' | 'example'; text: string; source: string } | null;
+
+interface BackendHealth {
+  generator: string;
+  voice: string;
+}
 
 /** Flatten a node's subtree into readable build-log entries (DFS). */
 function logEntries(node: UINode): { type: string; label: string }[] {
@@ -54,10 +60,19 @@ export const App: React.FC = () => {
   const abortRef = useRef<AbortController | null>(null);
   const lastRun = useRef<() => void>(() => {});
   const [voiceOpen, setVoiceOpen] = useState(false);
+  const [notices, setNotices] = useState<string[]>([]);
+  const [backend, setBackend] = useState<BackendHealth>({ generator: 'stub', voice: 'off' });
 
   useEffect(() => {
     fetchExamples().then(setExamples).catch(() => setExamples([]));
+    fetch('/api/health')
+      .then((res) => res.json())
+      .then((body: BackendHealth) => setBackend({ generator: body.generator, voice: body.voice }))
+      .catch(() => {});
   }, []);
+
+  const voiceName = backend.voice === 'grok' ? 'Grok' : backend.voice === 'gemini' ? 'Gemini' : null;
+  const voiceLabel = voiceName ?? 'Voice';
 
   function startStream(text: string, baseSpec?: UISpec) {
     const p = text.trim();
@@ -70,13 +85,16 @@ export const App: React.FC = () => {
     setError(null);
     setShowSpec(false);
     setLog([]);
+    setNotices([]);
     if (!baseSpec) setSpec(null);
 
     streamSpec(
       { prompt: p, spec: baseSpec },
       {
         onMeta: (m) => {
-          setProv((prev) => ({ kind: baseSpec ? 'refine' : 'generate', text: p, source: m.source }) as Prov);
+          const source = m.degraded ? (m.source === 'stub' ? 'stub' : 'degraded') : m.source;
+          setProv({ kind: baseSpec ? 'refine' : 'generate', text: p, source });
+          setNotices(Array.isArray(m.notices) ? m.notices : []);
           setSpec({ title: m.title ?? undefined, initialState: m.initialState, tree: [] });
           setCount(m.count);
           setGenId((n) => n + 1);
@@ -135,6 +153,10 @@ export const App: React.FC = () => {
   const voiceContext = () => {
     const root = document.querySelector('section[aria-label="Generated interface"]');
     let readable = root ? (root as HTMLElement).innerText.replace(/\s+/g, ' ').trim() : '';
+    if (root) {
+      const controls = digestDomControls(root);
+      if (controls) readable = (readable ? readable + ' · ' : '') + controls;
+    }
     // Sandboxed lanes are cross-origin, so innerText can't see inside — but each
     // iframe posts a text digest we stash on its data-artifact-text attribute.
     const iframeText = Array.from(document.querySelectorAll<HTMLElement>('iframe[data-artifact-text]'))
@@ -149,7 +171,7 @@ export const App: React.FC = () => {
   };
   // The voice agent changes the UI via tool calls; apply its returned spec.
   const applyVoiceSpec = (s: UISpec) => {
-    setProv({ kind: 'refine', text: 'voice', source: 'gemini' });
+    setProv({ kind: 'refine', text: 'voice', source: backend.voice === 'gemini' ? 'gemini' : 'grok' });
     setSpec(s);
     setCount(s.tree.length);
     setGenId((n) => n + 1);
@@ -208,6 +230,7 @@ export const App: React.FC = () => {
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button
+          type="button"
           onClick={surprise}
           disabled={busy}
           className="rounded-full border border-accent/40 bg-accent/10 px-3 py-1 text-xs text-accent-soft transition-colors hover:bg-accent/20 disabled:opacity-50"
@@ -217,6 +240,7 @@ export const App: React.FC = () => {
         <span className="text-xs text-muted/60">examples:</span>
         {examples.map((ex) => (
           <button
+            type="button"
             key={ex.id}
             onClick={() => submitPrompt(ex.prompt)}
             className="rounded-full border border-edge bg-panel/40 px-3 py-1 text-xs text-muted transition-colors hover:border-accent hover:text-ink"
@@ -227,9 +251,9 @@ export const App: React.FC = () => {
       </div>
 
       {error && (
-        <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-300">
+        <div role="alert" className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-300">
           <span>Generation failed — the model may be busy. Please try again.</span>
-          <button onClick={() => lastRun.current()} className="rounded border border-red-400/40 px-2 py-0.5 text-xs hover:bg-red-500/20">
+          <button type="button" onClick={() => lastRun.current()} className="rounded border border-red-400/40 px-2 py-0.5 text-xs hover:bg-red-500/20">
             Retry
           </button>
         </div>
@@ -255,10 +279,12 @@ export const App: React.FC = () => {
               {!building && spec.tree.length > 0 && (
                 <div className="flex shrink-0 items-center gap-3">
                   <button
+                    type="button"
                     onClick={() => setVoiceOpen((v) => !v)}
                     aria-expanded={voiceOpen}
+                    aria-label={voiceOpen ? 'Hide voice assistant' : voiceName ? `Talk with ${voiceName}` : 'Open voice assistant'}
                     className={`text-xs ${voiceOpen ? 'text-accent-soft' : 'text-muted hover:text-ink'}`}
-                    title="Talk to it — Gemini Live voice reads and changes the UI"
+                    title={`Talk to it — ${voiceLabel} voice reads and changes the UI`}
                   >
                     🎙️ {voiceOpen ? 'Voice on' : 'Voice'}
                   </button>
@@ -275,6 +301,9 @@ export const App: React.FC = () => {
 
             {building && <BuildProgress have={spec.tree.length} count={count} log={log} />}
             {!building && prov && <Provenance prov={prov} />}
+            {notices.length > 0 && (
+              <p className="mb-3 text-xs text-amber-200" role="status">{notices.join(' ')}</p>
+            )}
 
             <GeneratedApp key={genId} spec={spec} />
 
@@ -294,12 +323,13 @@ export const App: React.FC = () => {
                 aria-label="Refine the generated UI"
                 className="min-w-[12rem] flex-1 bg-transparent px-1 py-1.5 text-sm text-ink placeholder:text-muted/60 outline-none disabled:opacity-50"
               />
-              <button
-                type="button"
-                onClick={() => setVoiceOpen(true)}
-                title="Talk to it with Gemini Live voice"
-                className="rounded-lg border border-edge px-3 py-1.5 text-sm text-muted transition-colors hover:text-ink"
-              >
+                <button
+                  type="button"
+                  onClick={() => setVoiceOpen(true)}
+                  aria-label={voiceName ? `Talk with ${voiceName}` : 'Open voice assistant'}
+                  title={`Talk to it with ${voiceLabel} voice`}
+                  className="rounded-lg border border-edge px-3 py-1.5 text-sm text-muted transition-colors hover:text-ink"
+                >
                 🎙️ Voice
               </button>
               <button
@@ -312,7 +342,7 @@ export const App: React.FC = () => {
             </form>
 
             <p className="mt-2 text-[11px] text-muted/60">
-              🎙️ Tap “Voice” to talk to it — Gemini Live hears you, reads the data, and changes the UI in its own voice.
+              🎙️ Tap “Voice” to talk to it — {voiceName ?? 'the assistant'} hears you, reads the data, and changes the UI in its own voice.
             </p>
 
             {showSpec && (
@@ -334,7 +364,13 @@ export const App: React.FC = () => {
       </footer>
 
       {voiceOpen && (
-        <VoicePanel getContext={voiceContext} onSpec={applyVoiceSpec} specVersion={genId} onClose={() => setVoiceOpen(false)} />
+        <VoicePanel
+          providerLabel={voiceLabel}
+          getContext={voiceContext}
+          onSpec={applyVoiceSpec}
+          specVersion={genId}
+          onClose={() => setVoiceOpen(false)}
+        />
       )}
     </div>
   );
@@ -363,7 +399,14 @@ const BuildProgress: React.FC<{ have: number; count: number; log: { type: string
       </span>
       <span className="text-muted">{have}/{Math.max(have, count)}</span>
     </div>
-    <div className="h-1 w-full overflow-hidden rounded-full bg-edge">
+    <div
+      className="h-1 w-full overflow-hidden rounded-full bg-edge"
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={Math.max(have, count)}
+      aria-valuenow={have}
+      aria-label="Assembly progress"
+    >
       <div
         className="h-full rounded-full bg-accent transition-all duration-300"
         style={{ width: `${count ? Math.min(100, (have / count) * 100) : 0}%` }}
@@ -392,11 +435,15 @@ const BuildProgress: React.FC<{ have: number; count: number; log: { type: string
 
 const Provenance: React.FC<{ prov: NonNullable<Prov> }> = ({ prov }) => {
   const label =
-    prov.kind === 'refine'
-      ? '✦ Refined'
-      : prov.source === 'gemini'
-        ? '✨ Generated by Gemini'
-        : '✨ Generated (offline demo)';
+    prov.source === 'degraded'
+      ? 'Model did not return a UI'
+      : prov.kind === 'refine'
+        ? '✦ Refined'
+        : prov.source === 'grok'
+          ? '✨ Generated by Grok'
+          : prov.source === 'gemini'
+            ? '✨ Generated by Gemini'
+            : '✨ Offline — connect a model';
   return (
     <div className="mb-4 flex items-center gap-2 rounded-xl border border-edge bg-panel/40 px-3 py-2 text-xs">
       <span className="font-medium text-accent-soft">{label}</span>
@@ -412,6 +459,7 @@ const Gallery: React.FC<{ examples: Example[]; onPick: (ex: Example) => void }> 
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {examples.map((ex) => (
         <button
+          type="button"
           key={ex.id}
           onClick={() => onPick(ex)}
           className="rounded-2xl border border-edge bg-panel/50 p-5 text-left transition-all hover:-translate-y-0.5 hover:border-accent hover:shadow-lg hover:shadow-accent/10"

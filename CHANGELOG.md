@@ -6,6 +6,47 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Default text generation is Grok `grok-4.7` through the xAI Responses API
+  (`openai` SDK, `baseURL` `https://api.x.ai/v1`, JSON schema output). Set
+  `XAI_API_KEY`. `GENERATOR=gemini` keeps the previous Gemini path.
+- Default voice is Grok speech-to-speech (`grok-voice-latest` on
+  `wss://api.x.ai/v1/realtime`, voice `eve`) with the same `read_ui` /
+  `refine_ui` / `generate_ui` tools. `VOICE_PROVIDER=gemini` keeps Gemini Live,
+  including its session-resumption handle.
+- Bind expressions use `expr-eval-fork` instead of unmaintained `expr-eval`.
+- PostCSS is 8.5.32, which closes the source-map path traversal advisory in 8.4.x.
+- CustomWidget iframes send a Content-Security-Policy that blocks network access.
+  Generate and stream routes are rate-limited. Upstream error text is no longer
+  returned to the browser.
+
+### Fixed
+- Artifact frames may load Google Fonts (`fonts.googleapis.com` stylesheets and
+  `fonts.gstatic.com` files). Other origins stay blocked.
+- Multi-screen routing no longer treats a quiz or a "flow field" as several pages.
+- Voice snapshots include input, textarea, and select values from artifacts.
+- The slider number box can be cleared or hold a leading minus while typing.
+- Specs that omit `initialState` for an input get a default and a visible notice.
+- Toggles without a label use their state key as the accessible name.
+- ReactArtifact documents allow `'unsafe-eval'` and `blob:` so Babel and the
+  import lane can run. The frame stays an opaque-origin sandbox, and
+  `connect-src` is limited to the CDN hosts plus the documented public data APIs.
+- Gauge and progress readouts use a consistent number format. Currency symbols
+  in `suffix` render as a prefix. A gauge past its scale still shows the real value.
+- Typed slider and number values outside the model min/max/step are kept, and
+  the slider track widens to include them.
+- When a model response contains more than one JSON value, generation keeps the
+  most complete one and logs what it dropped.
+- `scripts/live-grok.mjs` uses the `ws` package, so the live gate runs on Node 20
+  (no global `WebSocket`) and on Node 22.
+- Voice transcripts update one line per utterance. Cumulative user text such as
+  "What is the" → "What is the current count?" no longer stacks duplicate lines.
+
+### Added
+- `npm test` (node:test) for spec parsing, provider selection, the voice event
+  map, and the expression sandbox. CI runs it. `scripts/live-grok.mjs` is the
+  opt-in live Grok browser check and is not part of CI.
+
 ## [0.1.0] - 2026-06-20
 
 ### Added

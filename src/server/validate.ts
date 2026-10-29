@@ -8,7 +8,18 @@
  * renders a graceful placeholder), and throw only when the top-level shape is
  * unusable.
  */
-import type { JSONValue, UINode, UISpec } from '../shared/spec.ts';
+import type { JSONValue, UIAction, UINode, UISpec } from '../shared/spec.ts';
+
+const EXPR_RESERVED = new Set([
+  'min', 'max', 'abs', 'round', 'floor', 'ceil', 'sqrt', 'pow',
+  'PI', 'E', 'true', 'false', 'if', 'and', 'or', 'not', 'in',
+]);
+
+const specNoticeMap = new WeakMap<UISpec, string[]>();
+
+export function specNotices(spec: UISpec): string[] {
+  return specNoticeMap.get(spec) ?? [];
+}
 
 const KNOWN_TYPES = new Set([
   // layout
@@ -88,20 +99,79 @@ export function validateSpec(raw: unknown): ValidationResult {
     throw new Error('Spec produced no renderable nodes.');
   }
 
-  const initialState = isPlainObject(obj.initialState)
-    ? (obj.initialState as Record<string, JSONValue>)
-    : undefined;
+  const seeded = isPlainObject(obj.initialState)
+    ? { ...(obj.initialState as Record<string, JSONValue>) }
+    : {};
+  const filled = fillMissingState(tree, seeded, warnings);
   const theme = isPlainObject(obj.theme) ? (obj.theme as UISpec['theme']) : undefined;
 
-  return {
-    spec: {
-      ...(typeof obj.title === 'string' ? { title: obj.title } : {}),
-      ...(initialState ? { initialState } : {}),
-      ...(theme ? { theme } : {}),
-      tree,
-    },
-    warnings,
+  const spec: UISpec = {
+    ...(typeof obj.title === 'string' ? { title: obj.title } : {}),
+    ...(Object.keys(filled).length ? { initialState: filled } : {}),
+    ...(theme ? { theme } : {}),
+    tree,
   };
+  specNoticeMap.set(spec, warnings);
+  return { spec, warnings };
+}
+
+function fillMissingState(tree: UINode[], state: Record<string, JSONValue>, warnings: string[]): Record<string, JSONValue> {
+  const needed = new Map<string, JSONValue>();
+  const remember = (key: string, value: JSONValue) => {
+    if (!key || EXPR_RESERVED.has(key) || key in state || needed.has(key)) return;
+    needed.set(key, value);
+  };
+  const walk = (node: UINode) => {
+    const props = node.props ?? {};
+    if (typeof props.stateKey === 'string') remember(props.stateKey, defaultFor(node.type, props));
+    const action = props.action;
+    if (action && typeof action === 'object' && !Array.isArray(action) && typeof (action as UIAction).key === 'string') {
+      remember((action as UIAction).key as string, 0);
+    }
+    if (node.bind) {
+      for (const expr of Object.values(node.bind)) {
+        for (const id of identifiers(expr)) remember(id, 0);
+      }
+    }
+    (node.children ?? []).forEach(walk);
+  };
+  tree.forEach(walk);
+  if (needed.size === 0) return state;
+  const keys = [...needed.keys()];
+  warnings.push(`Filled missing initialState for ${keys.join(', ')}.`);
+  for (const [key, value] of needed) state[key] = value;
+  return state;
+}
+
+function defaultFor(type: string, props: Record<string, JSONValue | UIAction>): JSONValue {
+  switch (type) {
+    case 'Toggle':
+      return false;
+    case 'TextInput':
+      return '';
+    case 'ColorPicker':
+      return '#7c5cff';
+    case 'Select':
+    case 'RadioGroup': {
+      const options = props.options;
+      if (Array.isArray(options)) {
+        const first = options[0];
+        if (first && typeof first === 'object' && !Array.isArray(first) && 'value' in first) {
+          return (first as { value: JSONValue }).value;
+        }
+      }
+      return '';
+    }
+    case 'Slider':
+    case 'NumberInput':
+      return typeof props.min === 'number' ? props.min : 0;
+    default:
+      return 0;
+  }
+}
+
+function identifiers(expr: string): string[] {
+  return [...expr.matchAll(/\b[A-Za-z_][A-Za-z0-9_]*\b/g)].map((match) => match[0]);
 }
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {

@@ -7,7 +7,7 @@
  * expr-eval's safe parser — never `eval`, never `new Function`.
  */
 import { createContext, useContext } from 'react';
-import { Parser } from 'expr-eval';
+import { Parser } from 'expr-eval-fork';
 import type { JSONValue, UIAction } from '../../shared/spec';
 
 export type StateMap = Record<string, JSONValue>;
@@ -58,7 +58,10 @@ export function applyAction(
       return { ...state, [action.key]: !state[action.key] };
     case 'reset':
       return { ...initialState };
-    default:
+    default: {
+      const unexpected: never = action.type;
+      void unexpected;
       return state;
+    }
   }
 }
