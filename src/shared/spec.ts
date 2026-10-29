@@ -74,6 +74,6 @@ export interface Example {
 /** Response shape of POST /api/generate. */
 export interface GenerateResponse {
   prompt: string;
-  source: 'stub' | 'gemini';
+  source: 'stub' | 'grok' | 'gemini';
   spec: UISpec;
 }

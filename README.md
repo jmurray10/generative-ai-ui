@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![React](https://img.shields.io/badge/react-18-149eca.svg)](#run-it)
 [![TypeScript](https://img.shields.io/badge/typescript-5-3178c6.svg)](#run-it)
-[![LLM](https://img.shields.io/badge/LLM-Gemini-8e75ff.svg)](https://ai.google.dev/)
+[![LLM](https://img.shields.io/badge/LLM-Grok-8e75ff.svg)](https://docs.x.ai/)
 
 A public playground that shows off **generative UI**: type a sentence, and a
 working, interactive interface builds itself. No upload, no domain setup, no
@@ -23,7 +23,7 @@ shows a "connect a model" notice.)
 ![GenUI Playground — a prompt builds a working, themed interface](docs/demo.png)
 
 > _Type a sentence → a working, themed, interactive UI streams in node-by-node. Talk to it
-> with the Gemini Live voice agent to read or edit the screen._
+> with Grok speech-to-speech to read or edit the screen._
 
 ## How it works
 
@@ -32,13 +32,13 @@ prompt ─▶ /api/stream (SSE) ─▶ UISpec (JSON) ─▶ client engine ─▶
    │                              │
    │   ┌──────────────────────────┴──────────────────────────────┐
    │   │ Lane A — whitelisted component registry + reactive state │
-   │   │          (expr-eval bindings, no eval) + optional theme  │
+   │   │          (expr-eval-fork bindings, no eval) + optional theme  │
    │   │ Lane B — CustomWidget: vanilla HTML/JS in a sandboxed     │
    │   │          <iframe sandbox="allow-scripts">                │
    │   │ Lane C — ReactArtifact: freeform React+Tailwind (+ npm    │
    │   │          imports, live fetch) in a sandboxed iframe       │
    │   └──────────────────────────────────────────────────────────┘
-   └─▶ /voice (WebSocket) ─▶ Gemini Live voice agent (reads + edits the UI)
+   └─▶ /voice (WebSocket) ─▶ Grok speech-to-speech (reads + edits the UI)
 ```
 
 A model turns a sentence into a **UISpec** (`src/shared/spec.ts`); the client renders it
@@ -47,7 +47,7 @@ across a three-lane **toolbox** the model chooses from per node:
 - **Lane A — registry** (`src/client/engine/components.tsx`): the model composes
   audited React components and fills props — it never authors code here. Dynamic
   values come from a reactive state map (`state.ts`) whose `bind` expressions run
-  in a **safe parser** (`expr-eval`, no `eval`). A spec may carry an optional
+  in a **safe parser** (`expr-eval-fork`, no `eval`). A spec may carry an optional
   **theme** (palette + Google Font); a deterministic contrast pass flips illegible
   text and derives a legible muted tone so any palette stays readable.
 - **Lane B — CustomWidget**: arbitrary HTML/JS in an isolated
@@ -58,8 +58,8 @@ across a three-lane **toolbox** the model chooses from per node:
 
 Beyond per-node generation: **multi-screen** prompts (deck/onboarding/wizard) are
 planned→expanded into a tabbed app (each screen generated independently), and a
-**Gemini Live voice agent** at `/voice` can read the on-screen data aloud and edit
-the UI by speech.
+**Grok speech-to-speech agent** at `/voice` can read the on-screen data aloud and edit
+the UI by speech. Gemini Live stays available with `VOICE_PROVIDER=gemini`.
 
 ## Run it
 
@@ -91,21 +91,30 @@ Swagger UI at **`/docs`** (raw spec at `/openapi.json`).
 | GET    | `/api/examples`  | Example *prompts* for the gallery (no canned specs) |
 | POST   | `/api/generate`  | `{ prompt }` → `{ spec }` (one-shot JSON)           |
 | POST   | `/api/stream`    | `{ prompt, spec? }` → SSE build-in (generate/refine/multi-screen)|
-| WS     | `/voice`         | Gemini Live voice agent (reads + edits the live UI) |
+| WS     | `/voice`         | Grok speech-to-speech (reads + edits the live UI)   |
 
 ## Configuration
 
-Copy `.env.example` to `.env`. With no key the app loads in `GENERATOR=stub` mode
-(no generation — it shows a "connect a model" notice). Set `GENERATOR=gemini` +
-`GEMINI_API_KEY` (or `GOOGLE_API_KEY`) to enable live generation **and** the voice
-agent. Optional: `GEMINI_MODEL` (default `gemini-3.5-flash`), `STREAM_STAGGER_MS`.
+Copy `.env.example` to `.env`. With no key the app loads and shows a "connect a
+model" notice — there are no pre-baked UIs. The default provider is **Grok**:
+
+```bash
+GENERATOR=grok          # default; "stub" stays offline, "gemini" is opt-in
+XAI_API_KEY=...         # required for live generation and Grok voice
+GROK_MODEL=grok-4.7     # Responses API flagship (Oct 2026)
+GROK_VOICE_MODEL=grok-voice-latest   # speech-to-speech, alias of grok-voice-3.0
+```
+
+`VOICE_PROVIDER=gemini` plus `GEMINI_API_KEY` keeps the previous Gemini Live
+agent. Optional: `XAI_BASE_URL`, `GROK_REASONING_EFFORT` (default `low`),
+`GROK_VOICE` (default `eve`), `STREAM_STAGGER_MS`, `RATE_LIMIT_PER_MIN`.
 
 ## Status / roadmap
 
-- **Engine & safety:** reactive state + safe `expr-eval` bindings, server-side
+- **Engine & safety:** reactive state + safe `expr-eval-fork` bindings, server-side
   `validateSpec`, Swagger, Docker.
-- **Live generation:** Gemini via `@google/genai` (`gemini-3.5-flash`) behind a
-  `Generator` interface, synced system prompt, robust balanced-brace JSON extraction.
+- **Live generation:** Grok via the OpenAI SDK pointed at `https://api.x.ai/v1`
+  (`grok-4.7`, Responses API, JSON schema). Gemini stays behind `GENERATOR=gemini`.
 - **Three-lane toolbox (~28 registry components + CustomWidget + ReactArtifact):**
   layout/display/charts/inputs; ReactArtifact runs npm imports (recharts, three,
   framer-motion, dnd-kit, …) and can `fetch()` public CORS APIs for live data.
@@ -115,11 +124,15 @@ agent. Optional: `GEMINI_MODEL` (default `gemini-3.5-flash`), `STREAM_STAGGER_MS
   tabbed app (per-screen generation, state namespaced to avoid collisions).
 - **Generative theming:** the model emits an optional `theme` (palette + Google
   Font); a deterministic WCAG contrast pass keeps every palette legible.
-- **Voice (Gemini Live):** a `/voice` WebSocket agent with `read_ui` / `refine_ui`
-  / `generate_ui` tools — live read-back round-trip, session resumption/reconnect,
-  and sandbox text digests so it can "see" inside artifacts.
-- **Verified:** Playwright + Chrome E2E against the Docker container — live 5/5,
-  feature + theme render checks, and a Gemini Live voice agent test.
+- **Voice (Grok speech-to-speech):** `/voice` bridges the browser to
+  `wss://api.x.ai/v1/realtime` (`grok-voice-latest`) with the same `read_ui` /
+  `refine_ui` / `generate_ui` tools. Input is 16 kHz PCM, output is 24 kHz PCM.
+  Gemini Live, including its session-resumption handle, stays on
+  `VOICE_PROVIDER=gemini` — the current Grok speech-to-speech docs do not describe
+  that handle, so a dropped Grok socket opens a fresh session.
+- **Checks:** `npm test` covers spec parsing, the provider switch, the voice event
+  map, and the expression sandbox. A live Grok browser run is `node scripts/live-grok.mjs`
+  and needs `XAI_API_KEY` (not part of CI).
 
 **Next:** shareable permalinks + remix.
 
@@ -134,18 +147,18 @@ generative-ai-ui/
 │   ├── shared/spec.ts          the UISpec contract (server ⇄ client)
 │   ├── server/                 Express + tsx, single port 8080
 │   │   ├── index.ts            routes: /api/stream (SSE), /api/generate, /docs
-│   │   ├── generator.ts        Generator interface; Gemini (generate/refine/generateApp)
+│   │   ├── generator.ts        Generator interface; Grok default, Gemini opt-in, stub
 │   │   ├── prompt.ts           system prompt — pins the component vocabulary
-│   │   ├── voice.ts            Gemini Live voice agent (/voice WebSocket)
+│   │   ├── voice.ts            /voice switch: Grok speech-to-speech or Gemini Live
 │   │   ├── validate.ts         server-side validateSpec
 │   │   └── openapi.ts          Swagger spec
 │   └── client/
 │       ├── App.tsx             prompt bar, gallery, refine, voice toggle
 │       ├── engine/             the renderer
 │       │   ├── components.tsx  Lane A registry + Lanes B/C sandbox iframes
-│       │   ├── state.ts        reactive state + safe expr-eval bindings
+│       │   ├── state.ts        reactive state + safe expr-eval-fork bindings
 │       │   └── GeneratedApp.tsx spec → tree, generative theming + contrast pass
-│       └── voice/              VoicePanel + useLiveVoice (Live API client)
+│       └── voice/              VoicePanel + useLiveVoice (Grok or Gemini)
 └── scripts/                    Playwright/Chrome E2E, theme, feature, voice checks
 ```
 

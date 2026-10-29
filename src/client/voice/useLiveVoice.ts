@@ -3,7 +3,7 @@ import { AudioPlayer, MicStreamer } from './audio';
 import type { UISpec } from '../../shared/spec';
 
 export type VoiceStatus = 'idle' | 'connecting' | 'live' | 'error';
-export interface Transcript { who: 'user' | 'ai'; text: string }
+export interface Transcript { who: 'user' | 'ai'; text: string; partial?: boolean }
 
 interface Opts {
   getContext: () => { spec: UISpec | null; readable: string };
@@ -11,7 +11,7 @@ interface Opts {
 }
 
 /**
- * Client side of the Gemini Live voice session: opens the /voice WebSocket,
+ * Client side of the realtime voice session: opens the /voice WebSocket,
  * streams mic audio up, plays the model's audio down, surfaces transcripts, and
  * applies spec updates the model makes via tools.
  */
@@ -19,6 +19,7 @@ export function useLiveVoice(opts: Opts) {
   const [status, setStatus] = useState<VoiceStatus>('idle');
   const [transcripts, setTranscripts] = useState<Transcript[]>([]);
   const [micOk, setMicOk] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const micRef = useRef<MicStreamer | null>(null);
   const playerRef = useRef<AudioPlayer | null>(null);
@@ -38,6 +39,7 @@ export function useLiveVoice(opts: Opts) {
   const start = useCallback(async () => {
     if (wsRef.current) return;
     setStatus('connecting');
+    setError(null);
     setTranscripts([]);
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${proto}://${location.host}/voice`);
@@ -72,7 +74,12 @@ export function useLiveVoice(opts: Opts) {
       } else if (m.type === 'interrupted') {
         player.clear();
       } else if (m.type === 'transcript') {
-        setTranscripts((t) => [...t.slice(-7), { who: m.who, text: m.text }]);
+        const line: Transcript = { who: m.who, text: String(m.text ?? ''), partial: Boolean(m.partial) };
+        setTranscripts((t) => {
+          const last = t[t.length - 1];
+          if (last && last.who === line.who && last.partial) return [...t.slice(0, -1), line].slice(-8);
+          return [...t, line].slice(-8);
+        });
       } else if (m.type === 'spec') {
         optsRef.current.onSpec(m.spec);
       } else if (m.type === 'readRequest') {
@@ -80,6 +87,7 @@ export function useLiveVoice(opts: Opts) {
         const { readable } = optsRef.current.getContext();
         if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'readResponse', id: m.id, readable }));
       } else if (m.type === 'error') {
+        setError(typeof m.message === 'string' ? m.message : 'Voice error');
         setStatus('error');
       }
     };
@@ -98,5 +106,5 @@ export function useLiveVoice(opts: Opts) {
     }
   }, []);
 
-  return { status, transcripts, micOk, start, stop, sendText, updateContext };
+  return { status, transcripts, micOk, error, start, stop, sendText, updateContext };
 }

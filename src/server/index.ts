@@ -16,29 +16,51 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-import { getGenerator } from './generator.ts';
+import { getGenerator, isDegradedSpec } from './generator.ts';
 import { examples } from './examples.ts';
 import { openapiSpec } from './openapi.ts';
-import { attachVoice } from './voice.ts';
+import { attachVoice, voiceInfo } from './voice.ts';
+import { createLimiter } from './limit.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..');
 const CLIENT_DIST = join(PROJECT_ROOT, 'dist', 'client');
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
+const MAX_PROMPT = Number(process.env.MAX_PROMPT_CHARS || 4000);
+const limiter = createLimiter(Number(process.env.RATE_LIMIT_PER_MIN || 30), 60_000);
 const generator = getGenerator();
+const voice = voiceInfo();
+
+function clientIp(req: Request): string {
+  return req.ip || req.socket.remoteAddress || 'unknown';
+}
+
+function readPrompt(body: unknown): string {
+  if (!body || typeof body !== 'object') return '';
+  const prompt = (body as { prompt?: unknown }).prompt;
+  return typeof prompt === 'string' ? prompt.trim() : '';
+}
 
 // Route obviously multi-screen requests through the plan→expand path.
 const APP_LIKE = /\b(deck|slides?|presentation|onboarding|wizard|walkthrough|stepper|flow|tour|quiz|survey|multi[\s-]?(screen|step|page)|several\s+(screens|pages|steps))\b/i;
 const generateFor = (prompt: string) => (APP_LIKE.test(prompt) ? generator.generateApp(prompt) : generator.generate(prompt));
 
 const app = express();
-app.use(cors());
+const corsOrigin = process.env.CORS_ORIGIN?.split(',').map((origin) => origin.trim()).filter(Boolean);
+app.use(corsOrigin && corsOrigin.length > 0 ? cors({ origin: corsOrigin }) : cors());
 app.use(express.json({ limit: '1mb' }));
 
 // ---- API -----------------------------------------------------------------
 app.get('/api/health', (_req: Request, res: Response) => {
-  res.json({ status: 'ok', generator: generator.name, uptime: process.uptime() });
+  res.json({
+    status: 'ok',
+    generator: generator.name,
+    model: generator.model,
+    voice: voice.provider,
+    voiceModel: voice.model,
+    uptime: process.uptime(),
+  });
 });
 
 app.get('/api/examples', (_req: Request, res: Response) => {
@@ -46,17 +68,25 @@ app.get('/api/examples', (_req: Request, res: Response) => {
 });
 
 app.post('/api/generate', async (req: Request, res: Response) => {
-  const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt.trim() : '';
+  if (!limiter.allow(clientIp(req))) {
+    res.status(429).json({ error: 'Too many generations. Wait a minute and try again.' });
+    return;
+  }
+  const prompt = readPrompt(req.body);
   if (!prompt) {
     res.status(400).json({ error: 'A non-empty "prompt" string is required.' });
     return;
   }
+  if (prompt.length > MAX_PROMPT) {
+    res.status(400).json({ error: `Prompt must be ${MAX_PROMPT} characters or fewer.` });
+    return;
+  }
   try {
     const spec = await generateFor(prompt);
-    res.json({ prompt, source: generator.name, spec });
+    res.json({ prompt, source: generator.name, degraded: isDegradedSpec(spec), spec });
   } catch (err) {
     console.error('[generate] failed:', err);
-    res.status(500).json({ error: (err as Error).message });
+    res.status(500).json({ error: 'Generation failed. Please try again.' });
   }
 });
 
@@ -69,8 +99,16 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * progressively — the "watch it build itself" moment.
  */
 app.post('/api/stream', async (req: Request, res: Response) => {
-  const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt.trim() : '';
+  if (!limiter.allow(clientIp(req))) {
+    res.status(429).json({ error: 'Too many generations. Wait a minute and try again.' });
+    return;
+  }
+  const prompt = readPrompt(req.body);
   const baseSpec = req.body?.spec;
+  if (prompt.length > MAX_PROMPT) {
+    res.status(400).json({ error: `Prompt must be ${MAX_PROMPT} characters or fewer.` });
+    return;
+  }
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -87,7 +125,13 @@ app.post('/api/stream', async (req: Request, res: Response) => {
       return res.end();
     }
     const spec = baseSpec ? await generator.refine(prompt, baseSpec) : await generateFor(prompt);
-    send('meta', { title: spec.title ?? null, initialState: spec.initialState ?? {}, count: spec.tree.length, source: generator.name });
+    send('meta', {
+      title: spec.title ?? null,
+      initialState: spec.initialState ?? {},
+      count: spec.tree.length,
+      source: generator.name,
+      degraded: isDegradedSpec(spec),
+    });
     for (let i = 0; i < spec.tree.length; i++) {
       await delay(STREAM_STAGGER_MS);
       send('node', { index: i, node: spec.tree[i] });
@@ -95,7 +139,7 @@ app.post('/api/stream', async (req: Request, res: Response) => {
     send('done', { spec });
   } catch (err) {
     console.error('[stream] failed:', err);
-    send('error', { error: (err as Error).message });
+    send('error', { error: 'Generation failed. Please try again.' });
   } finally {
     res.end();
   }

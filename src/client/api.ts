@@ -20,7 +20,7 @@ export async function generate(prompt: string): Promise<GenerateResponse> {
 }
 
 export interface StreamHandlers {
-  onMeta?: (m: { title: string | null; initialState: Record<string, any>; count: number; source: string }) => void;
+  onMeta?: (m: { title: string | null; initialState: Record<string, any>; count: number; source: string; degraded?: boolean }) => void;
   onNode?: (n: { index: number; node: UINode }) => void;
   onDone?: (d: { spec: UISpec }) => void;
   onError?: (error: string) => void;

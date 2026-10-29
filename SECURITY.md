@@ -13,14 +13,19 @@ demo project maintained on a best-effort basis.
 
 ## Good to know
 
-- Prompts are sent to the **Google Gemini API** to generate UI specs; the voice agent
-  streams microphone audio to the **Gemini Live API**. There is no database and no auth —
-  put it behind your own auth/proxy before exposing it publicly.
+- Prompts are sent to the **xAI API** (`api.x.ai`) to generate UI specs. The voice
+  agent streams microphone audio to **Grok speech-to-speech** (`wss://api.x.ai/v1/realtime`).
+  `VOICE_PROVIDER=gemini` sends that traffic to Google instead. There is no database and
+  no auth — put the server behind your own auth or proxy before exposing it, and set
+  `CORS_ORIGIN` if the API is not same-origin. `/api/generate` and `/api/stream` are
+  rate-limited in memory (`RATE_LIMIT_PER_MIN`).
 - Generated **ReactArtifact** and **CustomWidget** code runs in a sandboxed
   `<iframe sandbox="allow-scripts">` with no same-origin access, so it cannot read the
-  parent page, cookies, or the shared app state. Registry bindings are evaluated by a safe
-  expression parser (`expr-eval`), never `eval`. Treat generated code as untrusted all the
-  same.
+  parent page, cookies, or the shared app state. CustomWidget documents also set a
+  Content-Security-Policy that blocks network access. ReactArtifact allows the CDN hosts
+  it loads and `https:` fetches. Registry bindings are evaluated by `expr-eval-fork`
+  (the maintained fork that patches the prototype-pollution bugs in unmaintained
+  `expr-eval`), never `eval`. Treat generated code as untrusted all the same.
 - Never commit real API keys. `.env` is gitignored; use `.env.example` as the template.
 
 ## Contact

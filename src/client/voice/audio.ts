@@ -1,9 +1,9 @@
 /**
- * Browser audio for the Gemini Live voice session.
- *  - MicStreamer captures the mic as 16-bit PCM @ 16 kHz (Live API input format)
- *    and emits base64 chunks.
- *  - AudioPlayer queues/plays 16-bit PCM @ 24 kHz chunks (Live API output) and
- *    supports barge-in (clear()).
+ * Browser audio for the realtime voice session.
+ *  - MicStreamer captures the mic as 16-bit PCM @ 16 kHz and emits base64 chunks.
+ *  - AudioPlayer queues/plays 16-bit PCM @ 24 kHz chunks and supports barge-in.
+ * The server session (Grok speech-to-speech, or Gemini Live when selected)
+ * is configured for those same rates.
  */
 
 function downsample(input: Float32Array, inRate: number, outRate: number): Float32Array {

@@ -75,14 +75,20 @@ const Card: React.FC<Props> = ({ title, subtitle, children }) => (
 
 const Tabs: React.FC<Props> = ({ tabs, children }) => {
   const [active, setActive] = useState(0);
+  const uid = React.useId();
   const items = React.Children.toArray(children);
   const labels: string[] = Array.isArray(tabs) && tabs.length ? tabs : items.map((_, i) => `Tab ${i + 1}`);
   const idx = Math.min(active, Math.max(0, items.length - 1));
   return (
     <div>
-      <div className="mb-3 flex gap-1 border-b border-edge">
+      <div role="tablist" aria-label="Screens" className="mb-3 flex gap-1 border-b border-edge">
         {labels.map((l, i) => (
           <button
+            type="button"
+            role="tab"
+            id={`${uid}-tab-${i}`}
+            aria-selected={i === idx}
+            aria-controls={`${uid}-panel`}
             key={i}
             onClick={() => setActive(i)}
             className={`-mb-px border-b-2 px-3 py-2 text-sm ${i === idx ? 'border-accent text-ink' : 'border-transparent text-muted hover:text-ink'}`}
@@ -91,7 +97,7 @@ const Tabs: React.FC<Props> = ({ tabs, children }) => {
           </button>
         ))}
       </div>
-      <div>{items[idx]}</div>
+      <div role="tabpanel" id={`${uid}-panel`} aria-labelledby={`${uid}-tab-${idx}`}>{items[idx]}</div>
     </div>
   );
 };
@@ -101,6 +107,8 @@ const Collapsible: React.FC<Props> = ({ title, defaultOpen = false, children }) 
   return (
     <div className="rounded-xl border border-edge bg-panel/50">
       <button
+        type="button"
+        aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
         className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-medium text-ink"
       >
@@ -195,7 +203,14 @@ const ProgressBar: React.FC<Props> = ({ label, value = 0, max = 100, suffix = ''
           <span className="tabular-nums text-ink">{fmt(typeof value === 'number' ? value : 0)}{suffix}</span>
         </div>
       )}
-      <div className="h-2 w-full overflow-hidden rounded-full bg-edge">
+      <div
+        className="h-2 w-full overflow-hidden rounded-full bg-edge"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={Number(max) || 100}
+        aria-valuenow={Number(value) || 0}
+        aria-label={typeof label === 'string' && label ? label : 'Progress'}
+      >
         <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${pct}%` }} />
       </div>
     </div>
@@ -213,7 +228,7 @@ const Gauge: React.FC<Props> = ({ label, value = 0, min = 0, max = 100, suffix =
   const [vx, vy] = pt(ang);
   return (
     <div className="flex flex-col items-center">
-      <svg width="160" height="92" viewBox="0 0 160 92">
+      <svg width="160" height="92" viewBox="0 0 160 92" role="img" aria-label={`${label || 'Gauge'}: ${isFinite(v) ? v : 0}${suffix}`}>
         <path d={`M ${sx} ${sy} A ${r} ${r} 0 0 1 ${ex} ${ey}`} fill="none" stroke="#262635" strokeWidth="12" strokeLinecap="round" />
         <path d={`M ${sx} ${sy} A ${r} ${r} 0 0 1 ${vx} ${vy}`} fill="none" stroke="#7c5cff" strokeWidth="12" strokeLinecap="round" />
         <circle cx={vx} cy={vy} r="6" fill="#9d86ff" />
@@ -402,11 +417,11 @@ const RadioGroup: React.FC<Props> = ({ label, stateKey, options }) => {
   return (
     <div className="text-sm">
       {label && <div className="mb-1 text-muted">{label}</div>}
-      <div className="flex flex-wrap gap-2">
+      <div role="radiogroup" aria-label={typeof label === 'string' && label ? label : 'Options'} className="flex flex-wrap gap-2">
         {opts.map((o, i) => {
           const sel = String(cur) === String(o?.value);
           return (
-            <button key={i} type="button" onClick={() => setVar(stateKey, o.value)} className={`rounded-lg border px-3 py-1.5 ${sel ? 'border-accent bg-accent/15 text-ink' : 'border-edge text-muted hover:text-ink'}`}>
+            <button key={i} type="button" role="radio" aria-checked={sel} onClick={() => setVar(stateKey, o.value)} className={`rounded-lg border px-3 py-1.5 ${sel ? 'border-accent bg-accent/15 text-ink' : 'border-edge text-muted hover:text-ink'}`}>
               {String(o?.label ?? o?.value)}
             </button>
           );
@@ -457,6 +472,20 @@ const Button: React.FC<Props> = ({ label, action, variant = 'solid' }) => {
 };
 
 // ===== Sandboxed escape hatch ============================================
+const WIDGET_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:";
+const ARTIFACT_CSP = "default-src 'none'; script-src 'unsafe-inline' https://unpkg.com https://cdn.tailwindcss.com https://esm.sh; style-src 'unsafe-inline' https://cdn.tailwindcss.com; img-src data: blob: https:; font-src data: https:; media-src blob: https:; connect-src https:";
+
+function neutralizeClosers(source: string): string {
+  return source.replace(/<\/(script|style)/gi, '<\\/$1');
+}
+
+/** Self-contained document for Lane B. CSP blocks network, matching the prompt. */
+export function customWidgetSrcDoc(html: string, css: string, script: string): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${WIDGET_CSP}"><style>${neutralizeClosers(css)}</style></head><body>${html}` +
+    `<scr` + `ipt>${neutralizeClosers(script)}</scr` + `ipt>` +
+    `<scr` + `ipt>${TEXT_POSTER}</scr` + `ipt></body></html>`;
+}
+
 const CustomWidget: React.FC<Props> = ({ html = '', css = '', script = '', height = 240 }) => {
   const ref = useRef<HTMLIFrameElement>(null);
   useEffect(() => {
@@ -468,10 +497,7 @@ const CustomWidget: React.FC<Props> = ({ html = '', css = '', script = '', heigh
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
   }, []);
-  const srcDoc =
-    `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body>${html}` +
-    `<scr` + `ipt>${script}</scr` + `ipt>` +
-    `<scr` + `ipt>${TEXT_POSTER}</scr` + `ipt></body></html>`;
+  const srcDoc = customWidgetSrcDoc(String(html), String(css), String(script));
   return (
     <iframe
       ref={ref}
@@ -522,6 +548,7 @@ function buildClassicDoc(code: string): string {
     'try{var _src=' + escScript(code) + ';var _full=' + JSON.stringify(prelude) + '+"\\n"+_src+"\\n"+' + JSON.stringify(epilogue) + ';' +
     'var _out=Babel.transform(_full,{presets:[["react",{runtime:"classic"}]]}).code;new Function(_out)();}catch(e){window.__err((e&&e.message)||e);}';
   return '<!doctype html><html><head><meta charset="utf-8">' +
+    `<meta http-equiv="Content-Security-Policy" content="${ARTIFACT_CSP}">` +
     '<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>' +
     '<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>' +
     '<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>' +
@@ -568,6 +595,7 @@ function buildModuleDoc(code: string): string {
     'var _out=Babel.transform(_full,{presets:[["react",{runtime:"automatic"}]],filename:"app.jsx"}).code;' +
     'var _u=URL.createObjectURL(new Blob([_out],{type:"text/javascript"}));import(_u).catch(function(e){window.__err((e&&e.message)||String(e));});}catch(e){window.__err((e&&e.message)||e);}';
   return '<!doctype html><html><head><meta charset="utf-8">' +
+    `<meta http-equiv="Content-Security-Policy" content="${ARTIFACT_CSP}">` +
     '<script src="https://cdn.tailwindcss.com"></script>' +
     '<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>' +
     '<script type="importmap">' + importMap + '</script>' +
@@ -575,7 +603,7 @@ function buildModuleDoc(code: string): string {
     '</head><body><div id="root"></div><script>' + ARTIFACT_SHIM + '</script><script>' + runner + '</script></body></html>';
 }
 
-function buildArtifactDoc(code: string): string {
+export function buildArtifactDoc(code: string): string {
   // ES `import` statements → module lane; otherwise the simple classic lane.
   const usesImports = /(^|[\n;])\s*import\s.+from\s/.test(code) || /(^|[\n;])\s*import\s+['"]/.test(code);
   return usesImports ? buildModuleDoc(code) : buildClassicDoc(code);

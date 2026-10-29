@@ -22,12 +22,13 @@ npm start            # http://localhost:8080
 ## Before opening a PR
 
 - Keep changes focused and match the surrounding style.
-- `npm run typecheck` and `npm run build` pass (CI runs both on every pull request).
+- `npm run typecheck`, `npm test`, and `npm run build` pass (CI runs all three).
 - If you touch the component registry (`src/client/engine/components.tsx`), keep the
   system prompt (`src/server/prompt.ts`) in sync — the model only knows the vocabulary the
   prompt describes.
-- For a live end-to-end smoke test against a running container, set a `GEMINI_API_KEY` and
-  run `node scripts/e2e.mjs` (needs Docker + Chrome; not part of CI).
+- For a live Grok browser run, set `XAI_API_KEY` and run `node scripts/live-grok.mjs`
+  (Playwright + Chromium; not part of CI). `GENERATOR=gemini` still works with
+  `node scripts/e2e.mjs`.
 
 ## Reporting bugs and ideas
 

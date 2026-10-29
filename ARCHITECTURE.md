@@ -23,7 +23,7 @@ The model emits a **declarative JSON spec** that references a fixed, whitelisted
 catalog of React components. It never writes executable code in this lane — it
 *composes* audited components and fills their props. Dynamic values come from a
 small reactive state layer whose expressions are evaluated by a **safe parser**
-(`expr-eval`), never `eval` or `new Function`.
+(`expr-eval-fork`), never `eval` or `new Function`.
 
 - **Pros:** safe, deterministic, reliable, fast, fully inspectable.
 - **Cons:** bounded by the component vocabulary — the model can't invent new
@@ -93,9 +93,9 @@ fullscreen; encrypted-media"`.
         │                              │                         │
         │           ┌──────────────────┴───────────────────┐    │
         │           ▼                                       ▼    │
-        │   StubGenerator (offline)              GeminiGenerator │
-        │   echo: "connect a model"              @google/genai   │
-        │   (no canned specs)                    gemini-3.5-flash│
+        │   StubGenerator (offline)              GrokGenerator   │
+        │   echo: "connect a model"              grok-4.7        │
+        │   (no canned specs)                    Responses API   │
         │                              │                         │
         │                              ▼                         │
         │                       validateSpec()  (normalize/repair)│
@@ -165,7 +165,7 @@ A generated UI shares one flat state map:
 - **Display components read** computed values via `bind`: each entry maps a prop
   name to an expression recomputed on every render.
 
-Expressions are evaluated by **`expr-eval`'s `Parser`** — a sandboxed arithmetic/
+Expressions are evaluated by **`expr-eval-fork`'s `Parser`** — a sandboxed arithmetic/
 logic evaluator supporting `+ - * / %`, comparisons, ternaries, and a fixed set of
 math functions. It is **not** JavaScript: no property access, no function calls
 beyond the whitelist, no `eval`. Example bind: `bill * (1 + tipPct / 100) / people`.
@@ -215,13 +215,17 @@ visible.
 
 - **`StubGenerator`** (no key): has **no canned UIs** — it returns a "connect a
   model" notice. Generation is the model's job, so real output requires a model.
-- **`GeminiGenerator`**: calls Gemini (`@google/genai`, default `gemini-3.5-flash`)
-  with a `systemInstruction` (`src/server/prompt.ts`) that pins the exact component
-  vocabulary, the state/bind/action conventions, the safe-expression subset, and
-  three few-shot examples. Output is requested as JSON, extracted, and validated.
+- **`GrokGenerator`** (default): calls Grok (`grok-4.7`) through the OpenAI SDK
+  against `https://api.x.ai/v1/responses`, with `instructions` from
+  `src/server/prompt.ts` and a JSON schema (`strict: false`, because a UI tree is
+  recursive and the API rejects circular `$ref`s). Output is parsed, extracted if
+  the model wrapped it, and validated. Reasoning effort defaults to `low`.
+- **`GeminiGenerator`**: opt-in via `GENERATOR=gemini`. Same prompt, `@google/genai`,
+  `responseMimeType: application/json`.
 
-`getGenerator()` selects Gemini when `GENERATOR=gemini` and a key is present;
-otherwise the stub.
+`getGenerator()` selects Grok when `GENERATOR` is unset or `grok` and `XAI_API_KEY`
+is present, Gemini when `GENERATOR=gemini` and a Gemini key is present, and the
+stub otherwise.
 
 **Validation** (`src/server/validate.ts`): `validateSpec()` normalizes/repairs model
 output (missing ids, non-object props, non-array children, non-string binds) and
@@ -267,20 +271,20 @@ the wait, a **build log** narrating components (tagging sandboxed ones), a
   collisions, then assembles a `Tabs` shell (re-validated). Screens are often
   self-contained `ReactArtifact`s, in which case there's no shared state to clash.
 
-- **Voice — Gemini Live:** a WebSocket at `/voice` (`src/server/voice.ts`, `ws`
-  package) bridges the browser to the **Gemini Live API** (`ai.live.connect`,
-  native-audio model, voice Kore). The browser streams 16 kHz PCM mic audio
-  (`src/client/voice/audio.ts`); the model replies with 24 kHz audio plus
-  input/output transcripts. The agent has three function-calling tools:
+- **Voice — Grok speech-to-speech:** a WebSocket at `/voice` (`src/server/voice-grok.ts`)
+  bridges the browser to `wss://api.x.ai/v1/realtime?model=grok-voice-latest`
+  (voice `eve` by default). The browser streams 16 kHz PCM mic audio
+  (`src/client/voice/audio.ts`); the session asks Grok for 24 kHz PCM back, plus
+  transcripts. The agent has three function tools, returned as `function_call_output`:
   - `read_ui` — a **live round-trip**: the server asks the browser for the *current*
     on-screen text on each call, so it observes its own edits (not a snapshot taken
     at connect time); sandboxed iframes contribute via `data-artifact-text`.
   - `refine_ui` / `generate_ui` — edit or replace the UI; `refine_ui` reports
     `ok:false` on a no-op instead of claiming success.
 
-  The session enables `contextWindowCompression` + `sessionResumption` and
-  **transparently reconnects** (persisting the resumption handle) on a server
-  `goAway`, so long sessions survive.
+  A dropped Grok socket reconnects as a new session. Gemini Live
+  (`VOICE_PROVIDER=gemini`, `src/server/voice-gemini.ts`) still persists a
+  resumption handle; that mechanism is not in the current Grok speech-to-speech docs.
 
 - **Generative theming:** a spec may include `theme` (palette hex + a Google Font).
   `GeneratedApp` maps it to scoped `--gp-*` CSS variables on the generated section
@@ -296,7 +300,7 @@ the wait, a **build log** narrating components (tagging sandboxed ones), a
 | Surface | What runs | Why it's safe |
 |---|---|---|
 | Registry components | pre-written React, audited | model only picks types + props; no codegen |
-| `bind` expressions | `expr-eval` arithmetic/logic | sandboxed parser, not JS; no `eval`/`new Function` |
+| `bind` expressions | `expr-eval-fork` arithmetic/logic | sandboxed parser, not JS; no `eval`/`new Function` |
 | `CustomWidget` | model-authored HTML/JS | isolated iframe, `allow-scripts` only (no same-origin/network) |
 | `ReactArtifact` | model-authored React+Tailwind | isolated iframe (no same-origin); can only reach CORS-permitting origins (no allowlist enforced) |
 | Spec ingestion | server `validateSpec` | normalizes/repairs; unknown types degrade gracefully |
@@ -325,8 +329,12 @@ src/
   shared/spec.ts            # UISpec / UINode / UIAction / UITheme (shared types)
   server/
     index.ts                # Express: /api/*, /api/stream (SSE), /voice (WS), /docs, static
-    voice.ts                # Gemini Live voice agent (WebSocket /voice) + read_ui/refine_ui/generate_ui tools
-    generator.ts            # Generator: Stub + Gemini (generate/refine/generateApp), balanced-brace JSON extract
+    voice.ts                # /voice provider switch
+    voice-grok.ts           # Grok speech-to-speech (default)
+    voice-gemini.ts         # Gemini Live, VOICE_PROVIDER=gemini
+    grok.ts                 # Grok Responses API generator
+    gemini.ts               # Gemini generator (opt-in)
+    generator.ts            # Generator selection + stub
     prompt.ts               # system instruction + few-shot examples (one themed)
     validate.ts             # validateSpec(): normalize/repair model output (+ theme passthrough)
     examples.ts             # gallery example *prompts* (no canned specs)
@@ -362,9 +370,10 @@ scripts/                    # Playwright: e2e.mjs, features.mjs, theme.mjs, voic
 
 ```
 PORT=8080
-GENERATOR=stub            # or "gemini"
-GEMINI_API_KEY=…          # (or GOOGLE_API_KEY) — only for gemini mode
-GEMINI_MODEL=gemini-3.5-flash
+GENERATOR=grok            # or "stub" or "gemini"
+XAI_API_KEY=…             # required for grok text + voice
+GROK_MODEL=grok-4.7
+GROK_VOICE_MODEL=grok-voice-latest
 STREAM_STAGGER_MS=110     # per-node SSE stagger (visual pacing)
 ```
 

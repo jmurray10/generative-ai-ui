@@ -10,13 +10,14 @@ export const openapiSpec = {
       'evaluation, no `eval`); richer output runs in sandboxed iframes — a vanilla-JS ' +
       'CustomWidget or a freeform React+Tailwind ReactArtifact. A spec may carry an ' +
       'optional `theme`, and multi-screen requests are planned→expanded into a tabbed ' +
-      'app. A separate WebSocket at `/voice` exposes a Gemini Live voice agent that can ' +
-      'read and edit the on-screen UI (not described here — OpenAPI does not model WS).',
+      'app. A separate WebSocket at `/voice` exposes a Grok speech-to-speech agent ' +
+      '(Gemini Live when VOICE_PROVIDER=gemini) that can read and edit the on-screen UI ' +
+      '(not described here — OpenAPI does not model WS).',
   },
   servers: [{ url: '/', description: 'this server' }],
   tags: [
     { name: 'generation', description: 'Turn a prompt into a UI spec' },
-    { name: 'gallery', description: 'Pre-baked example specs' },
+    { name: 'gallery', description: 'Example prompts (the model generates each UI live)' },
     { name: 'system', description: 'Health and metadata' },
   ],
   paths: {
@@ -39,7 +40,7 @@ export const openapiSpec = {
     '/api/examples': {
       get: {
         tags: ['gallery'],
-        summary: 'List pre-baked example specs',
+        summary: 'List example prompts',
         responses: {
           '200': {
             description: 'Array of examples',
@@ -117,7 +118,10 @@ export const openapiSpec = {
         type: 'object',
         properties: {
           status: { type: 'string', example: 'ok' },
-          generator: { type: 'string', enum: ['stub', 'gemini'], example: 'stub' },
+          generator: { type: 'string', enum: ['stub', 'grok', 'gemini'], example: 'grok' },
+          model: { type: 'string', nullable: true, example: 'grok-4.7' },
+          voice: { type: 'string', enum: ['off', 'grok', 'gemini'], example: 'grok' },
+          voiceModel: { type: 'string', nullable: true, example: 'grok-voice-latest' },
           uptime: { type: 'number', example: 12.3 },
         },
       },
@@ -198,7 +202,8 @@ export const openapiSpec = {
         type: 'object',
         properties: {
           prompt: { type: 'string' },
-          source: { type: 'string', enum: ['stub', 'gemini'] },
+          source: { type: 'string', enum: ['stub', 'grok', 'gemini'] },
+          degraded: { type: 'boolean', description: 'True when the spec is the connect-a-model notice.' },
           spec: { $ref: '#/components/schemas/UISpec' },
         },
       },

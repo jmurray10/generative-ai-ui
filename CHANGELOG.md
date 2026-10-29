@@ -6,6 +6,25 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Default text generation is Grok `grok-4.7` through the xAI Responses API
+  (`openai` SDK, `baseURL` `https://api.x.ai/v1`, JSON schema output). Set
+  `XAI_API_KEY`. `GENERATOR=gemini` keeps the previous Gemini path.
+- Default voice is Grok speech-to-speech (`grok-voice-latest` on
+  `wss://api.x.ai/v1/realtime`, voice `eve`) with the same `read_ui` /
+  `refine_ui` / `generate_ui` tools. `VOICE_PROVIDER=gemini` keeps Gemini Live,
+  including its session-resumption handle.
+- Bind expressions use `expr-eval-fork` instead of unmaintained `expr-eval`.
+- PostCSS is 8.5.32, which closes the source-map path traversal advisory in 8.4.x.
+- CustomWidget iframes send a Content-Security-Policy that blocks network access.
+  Generate and stream routes are rate-limited. Upstream error text is no longer
+  returned to the browser.
+
+### Added
+- `npm test` (node:test) for spec parsing, provider selection, the voice event
+  map, and the expression sandbox. CI runs it. `scripts/live-grok.mjs` is the
+  opt-in live Grok browser check and is not part of CI.
+
 ## [0.1.0] - 2026-06-20
 
 ### Added
