@@ -20,6 +20,12 @@ All notable changes to this project are documented here. The format follows
   Generate and stream routes are rate-limited. Upstream error text is no longer
   returned to the browser.
 
+### Fixed
+- `scripts/live-grok.mjs` uses the `ws` package, so the live gate runs on Node 20
+  (no global `WebSocket`) and on Node 22.
+- Voice transcripts update one line per utterance. Cumulative user text such as
+  "What is the" → "What is the current count?" no longer stacks duplicate lines.
+
 ### Added
 - `npm test` (node:test) for spec parsing, provider selection, the voice event
   map, and the expression sandbox. CI runs it. `scripts/live-grok.mjs` is the
