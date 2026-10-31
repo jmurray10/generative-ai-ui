@@ -10,11 +10,12 @@
     "dev:client": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/server/*.test.ts src/client/engine/*.test.ts src/client/voice/*.test.ts",
+    "test": "tsx --test src/server/*.test.ts src/server/jev/*.test.ts src/server/showcase/*.test.ts src/shared/*.test.ts src/client/engine/*.test.ts src/client/voice/*.test.ts src/client/showcases/*.test.ts",
     "start": "tsx src/server/index.ts",
     "preview": "vite preview",
     "e2e": "node scripts/e2e.mjs",
-    "demo": "node scripts/demo.mjs"
+    "demo": "node scripts/demo.mjs",
+    "showcases:live": "node scripts/showcases-live.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.39.0",
@@ -39,6 +40,7 @@
     "@types/ws": "^8.5.13",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
+    "axe-core": "^4.14.0",
     "concurrently": "^9.1.0",
     "playwright": "^1.61.0",
     "postcss": "^8.5.32",

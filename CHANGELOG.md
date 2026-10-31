@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Design showcases at `/showcases/{critique,design-systems,workbench,intake}`:
+  a self-critiquing generator (impeccable detect → Grok fix loop), one prompt
+  rendered under three DESIGN.md + token design systems, a citation-checked
+  review workbench (axe-core gated), and a multi-step intake wizard with
+  confidence flags and approve/send-back.
+- `decideToolbox(prompt) -> Decision` seam with Jev (TypeSafe `/v1/systemone`)
+  and a Grok fallback. Code-owned policy fails closed to `hold`. "Why these
+  tools" panel readable by voice.
+- Design tokens (`--gp-*`) for colors, radius, shadow and fonts across the
+  registry. `designSystem`/`lane` options on `/api/stream`.
+- `npm run showcases:live` live gate. Unit tests for policy, critique loop,
+  citation checks, intake rules and wizard state.
+
 ### Changed
 - Default text generation is Grok `grok-4.7` through the xAI Responses API
   (`openai` SDK, `baseURL` `https://api.x.ai/v1`, JSON schema output). Set

@@ -5,7 +5,8 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import type { JSONValue, UIAction, UINode, UISpec } from '../../shared/spec';
-import { registry } from './components';
+import { DesignLockContext, registry } from './components';
+import type { DesignSystem } from '../../shared/toolbox';
 import { GenStateContext, evalExpr, applyAction, type StateMap } from './state';
 
 /** Color helpers for deterministic, WCAG-aware theming. A model can pick any
@@ -68,7 +69,12 @@ const Node: React.FC<{ node: UINode; state: StateMap }> = ({ node, state }) => {
   );
 };
 
-export const GeneratedApp: React.FC<{ spec: UISpec }> = ({ spec }) => {
+/**
+ * `designSystem` set: a DESIGN.md token file is active. The model's own theme is
+ * ignored and model-picked colors are locked out, so the tokens carry the look.
+ */
+export const GeneratedApp: React.FC<{ spec: UISpec; designSystem?: DesignSystem }> = ({ spec, designSystem }) => {
+  const theme = designSystem ? undefined : spec.theme;
   // Depend on initialState identity (not the whole spec) so streaming new nodes
   // into spec.tree doesn't churn the seed on every frame.
   const initialState = useMemo<StateMap>(() => ({ ...(spec.initialState ?? {}) }), [spec.initialState]);
@@ -86,7 +92,7 @@ export const GeneratedApp: React.FC<{ spec: UISpec }> = ({ spec }) => {
   // Build scoped --gp-* overrides from the optional theme (no per-component refactor:
   // the registry's Tailwind tokens already read these variables).
   const themeStyle = useMemo<React.CSSProperties | undefined>(() => {
-    const t = spec.theme;
+    const t = theme;
     if (!t) return undefined;
     const bg = parseHex(t.bg) ?? [11, 11, 18];
     const surface = parseHex(t.surface) ?? [21, 21, 31];
@@ -110,39 +116,44 @@ export const GeneratedApp: React.FC<{ spec: UISpec }> = ({ spec }) => {
       '--gp-on-accent': ch(onAccent),
       '--gp-focus': ch(focus),
     };
-    if (t.font) (s as Record<string, string>).fontFamily = `'${t.font}', system-ui, sans-serif`;
+    if (t.font) {
+      s.fontFamily = `'${t.font}', system-ui, sans-serif`;
+      s['--gp-font-body'] = s.fontFamily;
+    }
     return s as React.CSSProperties;
-  }, [spec.theme]);
+  }, [theme]);
 
   // load a Google Font if the theme asked for one
   useEffect(() => {
-    const font = spec.theme?.font;
+    const font = theme?.font;
     if (!font || document.querySelector(`link[data-gp-font="${font}"]`)) return;
     const link = document.createElement('link');
     link.rel = 'stylesheet';
     link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(font).replace(/%20/g, '+')}:wght@400;500;700&display=swap`;
     link.dataset.gpFont = font;
     document.head.appendChild(link);
-  }, [spec.theme?.font]);
+  }, [theme?.font]);
 
   // Tint the whole page to the theme bg so a themed UI doesn't float on the app's
   // purple gradient. Restored on unmount (GeneratedApp is keyed per generation).
   useEffect(() => {
-    const bg = spec.theme?.bg;
+    const bg = theme?.bg;
     if (!bg) return;
     const { style } = document.body;
     const prev = { color: style.backgroundColor, image: style.backgroundImage };
     style.backgroundColor = bg;
     style.backgroundImage = 'none';
     return () => { style.backgroundColor = prev.color; style.backgroundImage = prev.image; };
-  }, [spec.theme?.bg]);
+  }, [theme?.bg]);
 
   return (
+    <DesignLockContext.Provider value={Boolean(designSystem)}>
     <GenStateContext.Provider value={api}>
       <section
         aria-label="Generated interface"
         style={themeStyle}
-        className={`flex flex-col gap-4 ${spec.theme ? 'rounded-2xl bg-canvas p-5' : ''}`}
+        data-design={designSystem}
+        className={`flex flex-col gap-4 ${theme || designSystem ? 'rounded-2xl bg-canvas p-5' : ''}`}
       >
         {spec.tree.map((node) => (
           <div key={node.id} className="animate-rise">
@@ -151,5 +162,6 @@ export const GeneratedApp: React.FC<{ spec: UISpec }> = ({ spec }) => {
         ))}
       </section>
     </GenStateContext.Provider>
+    </DesignLockContext.Provider>
   );
 };

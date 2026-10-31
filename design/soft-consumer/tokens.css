@@ -1,0 +1,37 @@
+/* Token file for design/soft-consumer/DESIGN.md. Registry components read only these variables. */
+/* Fonts: https://fonts.googleapis.com/css2?family=Figtree:wght@400;600&display=swap (loaded by the client when active). */
+[data-design="soft_consumer"] {
+  --gp-canvas: 255 253 249; /* #FFFDF9 */
+  --gp-panel: 255 255 255; /* #FFFFFF */
+  --gp-edge: 238 232 224; /* #EEE8E0 */
+  --gp-ink: 36 33 30; /* #24211E */
+  --gp-muted: 119 113 106; /* #77716A */
+  --gp-accent: 232 96 60; /* #E8603C */
+  --gp-accent-soft: 168 64 31; /* #A8401F */
+  --gp-accent-deep: 194 74 40; /* #C24A28 */
+  --gp-on-accent: 36 33 30; /* #24211E */
+  --gp-focus: 194 74 40; /* #C24A28 */
+  --gp-ok: 91 140 106; /* #5B8C6A */
+  --gp-warn: 201 138 27; /* #C98A1B */
+  --gp-bad: 192 57 43; /* #C0392B */
+  --gp-info: 62 124 177; /* #3E7CB1 */
+  --gp-data-1: 232 96 60; /* #E8603C */
+  --gp-data-2: 91 140 106; /* #5B8C6A */
+  --gp-data-3: 242 166 90; /* #F2A65A */
+  --gp-data-4: 62 124 177; /* #3E7CB1 */
+  --gp-data-5: 181 69 42; /* #B5452A */
+  --gp-data-6: 156 184 163; /* #9CB8A3 */
+  --gp-data-7: 119 113 106; /* #77716A */
+  --gp-data-8: 246 201 184; /* #F6C9B8 */
+  --gp-radius-sm: 12px;
+  --gp-radius-md: 16px;
+  --gp-radius-lg: 16px;
+  --gp-radius-pill: 999px;
+  --gp-shadow-card: 0 1px 2px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.06);
+  --gp-font-body: 'Figtree', system-ui, sans-serif;
+  --gp-font-display: 'Figtree', system-ui, sans-serif;
+  --gp-font-data: 'Figtree', system-ui, sans-serif;
+  background-color: rgb(var(--gp-canvas));
+  color: rgb(var(--gp-ink));
+  font-family: var(--gp-font-body);
+}

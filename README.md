@@ -86,6 +86,61 @@ planned→expanded into a tabbed app (each screen generated independently), and 
 **Grok speech-to-speech agent** at `/voice` can read the on-screen data aloud and edit
 the UI by speech. Gemini Live stays available with `VOICE_PROVIDER=gemini`.
 
+## Design showcases
+
+Four pages under `/showcases/*` show the design tooling working together. All the
+data in them is synthetic.
+
+| Page | What it shows |
+| --- | --- |
+| `/showcases/critique` (A) | **Self-critiquing generator.** Round 0 is a vague prompt with no DESIGN.md. Then up to 3 rounds of `npx impeccable@4.8.0 detect` against the rendered artifact, each followed by a Grok fix that follows the chosen DESIGN.md. Every round logs its real finding count and a screenshot, and voice can read the round summary. Nothing is planted. |
+| `/showcases/design-systems` (B) | **One prompt, three design systems.** `design/{editorial-serif,ops-console,soft-consumer}/` each hold a `DESIGN.md` and a `tokens.css`. Registry components read `--gp-*` tokens only. You can switch systems live (keys 1-3), compare "swap only the token file" with a regenerate, and the DESIGN.md is sent in the system prompt on both the registry and ReactArtifact paths. |
+| `/showcases/workbench` (C) | **Review workbench.** A queue, a document viewer that highlights cited lines, and an AI answer panel whose citations link to page and line. Every citation is checked against the source text. Unsupported answers show "Couldn't verify". Demo toggles cover empty, loading, error and couldn't-verify. Keys: j/k for the queue, / to ask, [ ] for citations. axe-core is a gate. |
+| `/showcases/intake` (D) | **Intake wizard.** Grok extracts fields with confidence flags, and each quote is checked against the source. You fix the gaps, review a provisional result (standard or enhanced review), then approve it (with a confirmation checkbox) or send it back (a note is required). State and the audit trail carry across steps. |
+
+### Decision layer: `decideToolbox(prompt) -> Decision`
+
+Each page first asks one typed seam (`src/server/toolbox.ts`, `POST /api/decide`)
+which design system, render path, components and checks to use. The answer is
+`route`, `ask` (one fixed question) or `hold` (with a reason). A "Why these tools"
+panel shows the decision and its source, and voice can read it.
+
+- **Jev (TypeSafe)** is used when `TYPESAFE_API_KEY` is set. It sends a raw
+  `POST /v1/systemone` with the same shapes as `@typesafe-ai/sdk`. The SDK
+  (0.7.0) needs Node 22 and this repo runs on Node 20, so it isn't a dependency.
+  Jev only answers the questions in `src/server/jev/router.questions.ts`. The
+  routing policy and thresholds are code (`src/server/jev/policy.ts`).
+- **Grok fallback** is used when there's no key. Grok answers the same questions
+  with self-reported probabilities, and the panel labels them that way.
+- **Fails closed:** if a configured Jev call errors, the result is
+  `hold jev_error`. It never quietly falls back to Grok. Injection and
+  contradictory prompts hold too. Only a `low_confidence` hold can be overridden
+  by hand ("Build anyway (my call)").
+- **Tested live against Jev** (`jev-1.13.0`, 2026-10-30) on six golden prompts:
+  - Safety holds (injection, contradictory) and the vague-prompt ask behave as
+    expected, at about 115-560 ms per decision.
+  - With the current thresholds, Jev routes none of the three well-specified
+    prompts on the first try. The workbench prompt asks for an audience (design
+    pick 0.57) and routes after one answer. The wizard prompt holds
+    low_confidence (render pick 0.56). See "Status".
+
+Config: `TOOLBOX_DECIDER=auto|jev|grok` (default `auto`: Jev if a key is set,
+otherwise Grok), `TYPESAFE_API_KEY`, `TYPESAFE_BASE_URL`,
+`TYPESAFE_DEFAULT_MODEL` (default pinned `jev-1.13.0`) and `TYPESAFE_TIMEOUT_MS`
+(default 4000).
+
+Live gate: start the server, then run `BASE_URL=http://localhost:8080 npm run
+showcases:live -- a b c d decide`. It calls real Grok (and Jev, if configured),
+runs axe-core on every workbench and wizard state, and writes
+`scripts/screens/showcases-live.json`.
+
+Honest notes:
+- C and D are hand-built templates. Their AI parts (answers, extraction,
+  citation checks) and the decision are live, but the render-path choice only
+  changes the output on A and B.
+- A needs `npx` network access to fetch `impeccable@4.8.0`, or set
+  `IMPECCABLE_BIN`.
+
 ## Run it
 
 ```bash
@@ -116,6 +171,10 @@ Swagger UI at **`/docs`** (raw spec at `/openapi.json`).
 | GET    | `/api/examples`  | Example *prompts* for the gallery (no canned specs) |
 | POST   | `/api/generate`  | `{ prompt }` → `{ spec }` (one-shot JSON)           |
 | POST   | `/api/stream`    | `{ prompt, spec? }` → SSE build-in (generate/refine/multi-screen)|
+| POST   | `/api/decide`    | `{ prompt, answers? }` → decision envelope (route/ask/hold + why) |
+| GET    | `/api/design-systems` | The three design systems (id, name, DESIGN.md) |
+| POST   | `/api/showcase/critique` | SSE detect → fix loop (A) |
+| GET/POST | `/api/showcase/workbench/*`, `/api/showcase/intake/*` | Synthetic docs, cited answers, field extraction (C, D) |
 | WS     | `/voice`         | Grok speech-to-speech (reads + edits the live UI)   |
 
 ## Configuration
@@ -158,8 +217,15 @@ agent. Optional: `XAI_BASE_URL`, `GROK_REASONING_EFFORT` (default `low`),
 - **Checks:** `npm test` covers spec parsing, the provider switch, the voice event
   map, and the expression sandbox. A live Grok browser run is `node scripts/live-grok.mjs`
   and needs `XAI_API_KEY` (not part of CI).
+- **Design showcases / decision layer:** Jev was tested live on 2026-10-30. Safety
+  holds and asks match the golden prompts. The thresholds in
+  `router.questions.ts` aren't tuned yet: Jev's design and render picks for
+  clear prompts land around 0.55-0.75 against a 0.70 gate, so it asks or holds
+  more than it routes. The Grok fallback takes 7-17 s per decision; Jev takes
+  about 0.1-0.6 s. If the same question gets an answer that doesn't raise the
+  design pick, the policy asks it again.
 
-**Next:** shareable permalinks + remix.
+**Next:** shareable permalinks + remix; tune the Jev thresholds on a labelled prompt set.
 
 ## Project layout
 

@@ -87,3 +87,29 @@ export function xaiRealtimeURL(model: string, env: NodeJS.ProcessEnv = process.e
   url.searchParams.set('model', model);
   return url.toString();
 }
+
+/** TypeSafe (Jev) decision layer. Server-side only; the key never reaches the client. */
+export function typesafeKey(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const key = env.TYPESAFE_API_KEY?.trim();
+  return key || undefined;
+}
+
+export function typesafeBaseURL(env: NodeJS.ProcessEnv = process.env): string {
+  return (env.TYPESAFE_BASE_URL?.trim() || 'https://api.typesafe.ai').replace(/\/$/, '');
+}
+
+export type DeciderChoice = 'jev' | 'grok' | 'none';
+
+/**
+ * `TOOLBOX_DECIDER=jev|grok|auto` (default auto). Auto uses Jev when
+ * TYPESAFE_API_KEY is set, else the Grok-backed fallback, else none (hold).
+ * An explicit `jev` with no key is `none`, so it holds instead of quietly using Grok.
+ */
+export function deciderChoice(env: NodeJS.ProcessEnv = process.env): DeciderChoice {
+  const raw = (env.TOOLBOX_DECIDER ?? 'auto').trim().toLowerCase();
+  if (raw === 'jev' || raw === 'typesafe') return typesafeKey(env) ? 'jev' : 'none';
+  if (raw === 'grok') return xaiKey(env) ? 'grok' : 'none';
+  if (typesafeKey(env)) return 'jev';
+  if (xaiKey(env)) return 'grok';
+  return 'none';
+}

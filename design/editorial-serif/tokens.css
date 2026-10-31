@@ -1,0 +1,37 @@
+/* Token file for design/editorial-serif/DESIGN.md. Registry components read only these variables. */
+/* Fonts: https://fonts.googleapis.com/css2?family=Newsreader:wght@400;600&family=Source+Serif+4:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap (loaded by the client when active). */
+[data-design="editorial_serif"] {
+  --gp-canvas: 250 247 242; /* #FAF7F2 */
+  --gp-panel: 250 247 242; /* #FAF7F2 */
+  --gp-edge: 228 222 211; /* #E4DED3 */
+  --gp-ink: 28 26 23; /* #1C1A17 */
+  --gp-muted: 107 100 90; /* #6B645A */
+  --gp-accent: 138 43 43; /* #8A2B2B */
+  --gp-accent-soft: 138 43 43; /* #8A2B2B */
+  --gp-accent-deep: 106 31 31; /* #6A1F1F */
+  --gp-on-accent: 255 255 255; /* #FFFFFF */
+  --gp-focus: 138 43 43; /* #8A2B2B */
+  --gp-ok: 47 107 79; /* #2F6B4F */
+  --gp-warn: 138 90 18; /* #8A5A12 */
+  --gp-bad: 163 50 46; /* #A3322E */
+  --gp-info: 45 91 138; /* #2D5B8A */
+  --gp-data-1: 28 26 23; /* #1C1A17 */
+  --gp-data-2: 138 43 43; /* #8A2B2B */
+  --gp-data-3: 107 100 90; /* #6B645A */
+  --gp-data-4: 168 159 146; /* #A89F92 */
+  --gp-data-5: 74 69 62; /* #4A453E */
+  --gp-data-6: 201 191 176; /* #C9BFB0 */
+  --gp-data-7: 94 29 29; /* #5E1D1D */
+  --gp-data-8: 131 122 110; /* #837A6E */
+  --gp-radius-sm: 2px;
+  --gp-radius-md: 2px;
+  --gp-radius-lg: 2px;
+  --gp-radius-pill: 2px;
+  --gp-shadow-card: none;
+  --gp-font-body: 'Source Serif 4', Georgia, serif;
+  --gp-font-display: 'Newsreader', Georgia, serif;
+  --gp-font-data: 'IBM Plex Sans', system-ui, sans-serif;
+  background-color: rgb(var(--gp-canvas));
+  color: rgb(var(--gp-ink));
+  font-family: var(--gp-font-body);
+}

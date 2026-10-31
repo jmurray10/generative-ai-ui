@@ -17,9 +17,27 @@ export default {
           deep: 'rgb(var(--gp-accent-deep) / <alpha-value>)',
           ink: 'rgb(var(--gp-on-accent) / <alpha-value>)', // legible text ON the accent
         },
+        // status colors: always paired with a text label, never color alone
+        ok: 'rgb(var(--gp-ok) / <alpha-value>)',
+        warn: 'rgb(var(--gp-warn) / <alpha-value>)',
+        bad: 'rgb(var(--gp-bad) / <alpha-value>)',
+        info: 'rgb(var(--gp-info) / <alpha-value>)',
+      },
+      // Shape and depth are tokens too, so a DESIGN.md token file can restyle the
+      // registry without touching component code (design/*/tokens.css).
+      borderRadius: {
+        lg: 'var(--gp-radius-sm)',
+        xl: 'var(--gp-radius-md)',
+        '2xl': 'var(--gp-radius-lg)',
+        full: 'var(--gp-radius-pill)',
+      },
+      boxShadow: {
+        card: 'var(--gp-shadow-card)',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['var(--gp-font-body)'],
+        display: ['var(--gp-font-display)'],
+        data: ['var(--gp-font-data)'],
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
       },
     },

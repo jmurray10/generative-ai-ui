@@ -16,6 +16,26 @@
     --gp-accent-deep: 91 63 214;
     --gp-on-accent: 255 255 255;
     --gp-focus: 157 134 255;
+    --gp-ok: 52 211 153;
+    --gp-warn: 251 191 36;
+    --gp-bad: 248 113 113;
+    --gp-info: 96 165 250;
+    --gp-data-1: 124 92 255;
+    --gp-data-2: 34 211 238;
+    --gp-data-3: 52 211 153;
+    --gp-data-4: 251 191 36;
+    --gp-data-5: 244 114 182;
+    --gp-data-6: 96 165 250;
+    --gp-data-7: 248 113 113;
+    --gp-data-8: 167 139 250;
+    --gp-radius-sm: 0.5rem;
+    --gp-radius-md: 0.75rem;
+    --gp-radius-lg: 1rem;
+    --gp-radius-pill: 9999px;
+    --gp-shadow-card: 0 20px 25px -5px rgb(0 0 0 / 0.3), 0 8px 10px -6px rgb(0 0 0 / 0.3);
+    --gp-font-body: 'Inter', system-ui, sans-serif;
+    --gp-font-display: var(--gp-font-body);
+    --gp-font-data: var(--gp-font-body);
   }
 
   html,

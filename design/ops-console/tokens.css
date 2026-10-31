@@ -1,0 +1,37 @@
+/* Token file for design/ops-console/DESIGN.md. Registry components read only these variables. */
+/* Fonts: https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap (loaded by the client when active). */
+[data-design="ops_console"] {
+  --gp-canvas: 14 17 22; /* #0E1116 */
+  --gp-panel: 21 26 33; /* #151A21 */
+  --gp-edge: 35 42 51; /* #232A33 */
+  --gp-ink: 214 221 230; /* #D6DDE6 */
+  --gp-muted: 125 136 150; /* #7D8896 */
+  --gp-accent: 76 154 255; /* #4C9AFF */
+  --gp-accent-soft: 125 181 255; /* #7DB5FF */
+  --gp-accent-deep: 47 111 208; /* #2F6FD0 */
+  --gp-on-accent: 14 17 22; /* #0E1116 */
+  --gp-focus: 125 181 255; /* #7DB5FF */
+  --gp-ok: 63 182 139; /* #3FB68B */
+  --gp-warn: 224 169 59; /* #E0A93B */
+  --gp-bad: 229 83 75; /* #E5534B */
+  --gp-info: 76 154 255; /* #4C9AFF */
+  --gp-data-1: 76 154 255; /* #4C9AFF */
+  --gp-data-2: 63 182 139; /* #3FB68B */
+  --gp-data-3: 224 169 59; /* #E0A93B */
+  --gp-data-4: 229 83 75; /* #E5534B */
+  --gp-data-5: 154 167 182; /* #9AA7B6 */
+  --gp-data-6: 95 196 217; /* #5FC4D9 */
+  --gp-data-7: 214 221 230; /* #D6DDE6 */
+  --gp-data-8: 125 136 150; /* #7D8896 */
+  --gp-radius-sm: 4px;
+  --gp-radius-md: 4px;
+  --gp-radius-lg: 4px;
+  --gp-radius-pill: 4px;
+  --gp-shadow-card: none;
+  --gp-font-body: 'IBM Plex Sans', system-ui, sans-serif;
+  --gp-font-display: 'IBM Plex Sans', system-ui, sans-serif;
+  --gp-font-data: 'JetBrains Mono', ui-monospace, monospace;
+  background-color: rgb(var(--gp-canvas));
+  color: rgb(var(--gp-ink));
+  font-family: var(--gp-font-body);
+}

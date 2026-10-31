@@ -12,7 +12,8 @@ import type { UISpec } from '../shared/spec.ts';
 import { inspectJSON } from './json.ts';
 import { SYSTEM_PROMPT } from './prompt.ts';
 import { validateSpec } from './validate.ts';
-import type { Generator } from './types.ts';
+import type { GenerateOptions, Generator } from './types.ts';
+import { designInstructions } from './design-systems.ts';
 import { grokModel, grokReasoningEffort, xaiBaseURL, xaiKey, type ReasoningEffort } from './config.ts';
 import { buildAppFromPlan, echoSpec, isDegradedSpec } from './spec-build.ts';
 
@@ -121,10 +122,11 @@ export class GrokGenerator implements Generator {
     return responseText(response);
   }
 
-  private async specFrom(user: string, logLabel: string): Promise<UISpec> {
+  private async specFrom(user: string, logLabel: string, opts?: GenerateOptions): Promise<UISpec> {
     let text = '';
     try {
-      text = await this.complete(user, 'ui_spec', UI_SCHEMA, 16384, SYSTEM_PROMPT);
+      const instructions = SYSTEM_PROMPT + designInstructions(opts?.designSystem, opts?.lane);
+      text = await this.complete(user, 'ui_spec', UI_SCHEMA, 16384, instructions);
       if (!text.trim()) throw new Error('Model returned an empty response.');
       const extracted = inspectJSON(text);
       if (extracted.warnings.length) console.warn(`[grok] ${logLabel}:`, extracted.warnings);
@@ -139,8 +141,8 @@ export class GrokGenerator implements Generator {
     }
   }
 
-  async generate(prompt: string): Promise<UISpec> {
-    return this.specFrom(`Build: ${prompt}`, 'generate');
+  async generate(prompt: string, opts?: GenerateOptions): Promise<UISpec> {
+    return this.specFrom(`Build: ${prompt}`, 'generate', opts);
   }
 
   async refine(prompt: string, spec: UISpec): Promise<UISpec> {

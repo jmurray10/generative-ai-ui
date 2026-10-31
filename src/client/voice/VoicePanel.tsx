@@ -8,6 +8,8 @@ interface Props {
   onSpec: (s: UISpec) => void;
   specVersion: number;
   onClose: () => void;
+  /** Starter commands; defaults to the playground's. */
+  starters?: string[];
 }
 
 const statusLabel: Record<string, string> = {
@@ -17,7 +19,7 @@ const statusLabel: Record<string, string> = {
   error: 'Error',
 };
 
-export const VoicePanel: React.FC<Props> = ({ providerLabel, getContext, onSpec, specVersion, onClose }) => {
+export const VoicePanel: React.FC<Props> = ({ providerLabel, getContext, onSpec, specVersion, onClose, starters = ['Read me the data', 'Make it dark', 'Add a reset button'] }) => {
   const voice = useLiveVoice({ getContext, onSpec });
   const [text, setText] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -49,9 +51,9 @@ export const VoicePanel: React.FC<Props> = ({ providerLabel, getContext, onSpec,
   };
 
   const dotClass = voice.status === 'live'
-    ? 'animate-pulse bg-emerald-400'
+    ? 'animate-pulse bg-ok'
     : voice.status === 'error'
-      ? 'bg-red-400'
+      ? 'bg-bad'
       : 'bg-accent';
 
   return (
@@ -71,9 +73,9 @@ export const VoicePanel: React.FC<Props> = ({ providerLabel, getContext, onSpec,
       </div>
 
       {voice.status === 'error' ? (
-        <div className="mb-2 flex items-center justify-between rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1.5 text-[11px] text-red-300">
+        <div className="mb-2 flex items-center justify-between rounded-lg border border-bad/40 bg-bad/10 px-2 py-1.5 text-[11px] text-ink">
           <span>{voice.error ?? 'Voice disconnected.'}</span>
-          <button type="button" onClick={() => voice.start()} className="rounded border border-red-400/40 px-1.5 py-0.5 hover:bg-red-500/20">Reconnect</button>
+          <button type="button" onClick={() => voice.start()} className="rounded border border-bad/50 px-1.5 py-0.5 hover:bg-bad/20">Reconnect</button>
         </div>
       ) : (
         <p className="mb-2 text-[11px] text-muted" aria-live="polite">
@@ -85,7 +87,7 @@ export const VoicePanel: React.FC<Props> = ({ providerLabel, getContext, onSpec,
 
       {/* contextual starter commands */}
       <div className="mb-2 flex flex-wrap gap-1.5">
-        {['Read me the data', 'Make it dark', 'Add a reset button'].map((c) => (
+        {starters.map((c) => (
           <button
             type="button"
             key={c}
@@ -124,7 +126,7 @@ export const VoicePanel: React.FC<Props> = ({ providerLabel, getContext, onSpec,
           aria-label="Type a voice command"
           className="flex-1 rounded-lg border border-edge bg-canvas/60 px-2 py-1.5 text-xs text-ink placeholder:text-muted/60 outline-none focus:border-accent"
         />
-        <button type="submit" className="rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-white hover:bg-accent-deep">Send</button>
+        <button type="submit" className="rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-accent-ink hover:bg-accent-deep">Send</button>
       </form>
     </div>
   );
