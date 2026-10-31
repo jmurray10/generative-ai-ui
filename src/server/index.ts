@@ -23,6 +23,9 @@ import { attachVoice, voiceInfo } from './voice.ts';
 import { createLimiter } from './limit.ts';
 import { isMultiScreenPrompt } from './screen-route.ts';
 import { specNotices } from './validate.ts';
+import { showcaseRouter } from './showcase/routes.ts';
+import { isDesignSystem, type RenderMode } from '../shared/toolbox.ts';
+import type { GenerateOptions } from './types.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..');
@@ -45,7 +48,18 @@ function readPrompt(body: unknown): string {
 }
 
 // Route obviously multi-screen requests through the plan→expand path.
-const generateFor = (prompt: string) => (isMultiScreenPrompt(prompt) ? generator.generateApp(prompt) : generator.generate(prompt));
+const generateFor = (prompt: string, opts?: GenerateOptions) =>
+  opts ? generator.generate(prompt, opts) : isMultiScreenPrompt(prompt) ? generator.generateApp(prompt) : generator.generate(prompt);
+
+/** Optional DESIGN.md and render-path constraints from a request body (showcase B). */
+function readOptions(body: unknown): GenerateOptions | undefined {
+  if (!body || typeof body !== 'object') return undefined;
+  const { designSystem, lane } = body as { designSystem?: unknown; lane?: unknown };
+  const opts: GenerateOptions = {};
+  if (isDesignSystem(designSystem)) opts.designSystem = designSystem;
+  if (lane === 'registry' || lane === 'sandboxed_react') opts.lane = lane as RenderMode;
+  return opts.designSystem || opts.lane ? opts : undefined;
+}
 
 const app = express();
 const corsOrigin = process.env.CORS_ORIGIN?.split(',').map((origin) => origin.trim()).filter(Boolean);
@@ -125,7 +139,7 @@ app.post('/api/stream', async (req: Request, res: Response) => {
       send('error', { error: 'A non-empty "prompt" string is required.' });
       return res.end();
     }
-    const spec = baseSpec ? await generator.refine(prompt, baseSpec) : await generateFor(prompt);
+    const spec = baseSpec ? await generator.refine(prompt, baseSpec) : await generateFor(prompt, readOptions(req.body));
     send('meta', {
       title: spec.title ?? null,
       initialState: spec.initialState ?? {},
@@ -146,6 +160,8 @@ app.post('/api/stream', async (req: Request, res: Response) => {
     res.end();
   }
 });
+
+app.use(showcaseRouter(generator, PORT, (req) => limiter.allow(clientIp(req))));
 
 // ---- Docs ----------------------------------------------------------------
 app.get('/openapi.json', (_req: Request, res: Response) => res.json(openapiSpec));

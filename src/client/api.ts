@@ -1,4 +1,5 @@
 import type { Example, GenerateResponse, UINode, UISpec } from '../shared/spec';
+import type { DesignSystem, RenderMode } from '../shared/toolbox';
 
 export async function fetchExamples(): Promise<Example[]> {
   const res = await fetch('/api/examples');
@@ -32,7 +33,7 @@ export interface StreamHandlers {
  * "watch it build itself" reveal.
  */
 export async function streamSpec(
-  body: { prompt: string; spec?: UISpec },
+  body: { prompt: string; spec?: UISpec; designSystem?: DesignSystem; lane?: RenderMode },
   handlers: StreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
