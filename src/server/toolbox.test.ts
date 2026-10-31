@@ -72,3 +72,13 @@ test('toChoice normalizes Grok probabilities and picks the argmax', () => {
   assert.equal(c.choice, 'registry');
   assert.equal(c.probabilities.registry, 0.5);
 });
+
+test('decideToolbox passes answered through: a vague prompt asks once, then routes', async () => {
+  const vague = { ...mockAnswers, specificity: { type: 'score', score: 0.3 }, miss_data: yes(0.95) };
+  const deps = { source: 'jev' as const, judge: async () => ({ answers: vague as any, model: 'jev-1.13.0' }) };
+  const first = await decideToolbox('a dashboard', deps);
+  assert.equal(first.decision.kind, 'ask');
+  const second = await decideToolbox('a dashboard\nData: weekly sales', deps, { answered: true });
+  assert.equal(second.decision.kind, 'route');
+  assert.ok(second.why.some((l) => /never asks twice/.test(l)));
+});

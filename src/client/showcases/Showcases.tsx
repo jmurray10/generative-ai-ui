@@ -8,10 +8,22 @@ import { WorkbenchShowcase } from './WorkbenchShowcase';
 import { IntakeShowcase } from './IntakeShowcase';
 
 export const PAGES = [
-  { id: 'critique', label: 'A · Self-critiquing generator' },
-  { id: 'design-systems', label: 'B · One prompt, three design systems' },
-  { id: 'workbench', label: 'C · Review workbench' },
-  { id: 'intake', label: 'D · Intake wizard' },
+  {
+    id: 'critique', label: 'A · Self-critiquing generator', title: 'Self-critiquing generator',
+    lede: 'Grok builds a screen from a deliberately vague prompt. Impeccable scans the rendered page, and Grok fixes what it found, for up to three rounds. Every count is from a real scan; nothing is planted.',
+  },
+  {
+    id: 'design-systems', label: 'B · One prompt, three design systems', title: 'One prompt, three design systems',
+    lede: 'The same request, generated once under each of three DESIGN.md files. Registry components read only design tokens, so you can also keep one spec and swap just the token file.',
+  },
+  {
+    id: 'workbench', label: 'C · Review workbench', title: 'Review workbench',
+    lede: 'Ask about a contract and every claim links to the page and line it came from. Code checks each quote against the document and says plainly when it cannot verify one. The layout is a fixed template; the answers are live.',
+  },
+  {
+    id: 'intake', label: 'D · Intake wizard', title: 'Intake wizard',
+    lede: 'Grok pulls vendor details out of a message and flags how sure it is. You fix the gaps, review a provisional result from fixed rules, then approve it or send it back. The steps are a fixed template; the extraction is live.',
+  },
 ] as const;
 export type PageId = (typeof PAGES)[number]['id'];
 
@@ -41,6 +53,8 @@ function readSurfaces(): string {
 
 export const Showcases: React.FC = () => {
   const page = pageFromPath(window.location.pathname);
+  const info = PAGES.find((p) => p.id === page)!;
+  useEffect(() => { document.title = `${info.title} · GenUI Playground`; }, [info.title]);
   const [design, setDesign] = useState<DesignSystem>(DEFAULT_DESIGN[page]);
   const [voiceOpen, setVoiceOpen] = useState(false);
   const [surfaceVersion, setSurfaceVersion] = useState(0);
@@ -89,7 +103,14 @@ export const Showcases: React.FC = () => {
           {voiceOpen ? 'Voice on' : 'Talk with Grok'}
         </button>
       </header>
-      <main className="px-4 py-4">{body}</main>
+      <main className="px-4 py-4">
+        <div className="mb-4 max-w-3xl">
+          <h1 className="font-display text-xl font-semibold text-ink">{info.title}</h1>
+          <p className="mt-1 max-w-[60ch] text-sm text-muted">{info.lede}</p>
+          <p className="mt-1 text-xs text-muted">Every company, person and document on these pages is fictional.</p>
+        </div>
+        {body}
+      </main>
       {voiceOpen && (
         <VoicePanel
           providerLabel="Grok"

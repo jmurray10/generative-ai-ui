@@ -12,7 +12,7 @@ const HOLD_TITLE: Record<string, string> = {
   jev_error: 'Held: decision layer error',
   unsafe_or_injection: 'Held: unsafe request',
   contradictory: 'Held: contradictory request',
-  low_confidence: 'Held: not confident about the render path',
+  low_confidence: 'Held: not confident enough to build',
 };
 
 interface Props {
@@ -44,7 +44,7 @@ export const DecisionPanel: React.FC<Props> = ({ state, onAnswer, onOverride, on
           </ul>
           {state.envelope.decision.kind === 'ask' && (
             <form
-              className="flex gap-2"
+              className="flex flex-wrap gap-2"
               onSubmit={(e) => { e.preventDefault(); if (reply.trim()) { onAnswer(reply); setReply(''); } }}
             >
               <label className="sr-only" htmlFor="ask-reply">{state.envelope.decision.prompt}</label>
@@ -56,6 +56,7 @@ export const DecisionPanel: React.FC<Props> = ({ state, onAnswer, onOverride, on
                 className="min-w-0 flex-1 rounded-lg border border-edge bg-canvas px-2 py-1 text-ink"
               />
               <button type="submit" className="rounded-lg bg-accent px-3 py-1 font-medium text-accent-ink">Answer</button>
+              <p className="w-full text-xs text-muted">One answer is all it asks for. After that it builds or holds, and never asks again.</p>
             </form>
           )}
           {state.envelope.decision.kind === 'hold' && state.envelope.decision.reason === 'low_confidence' && !state.overridden && (

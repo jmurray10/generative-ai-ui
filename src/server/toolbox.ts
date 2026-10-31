@@ -10,7 +10,7 @@ import type { DecisionEnvelope, DecisionSource } from '../shared/toolbox.ts';
 import { deciderChoice } from './config.ts';
 import { askJev } from './jev/client.ts';
 import { askGrokJudge } from './jev/grok-judge.ts';
-import { explain, routeToolbox, type Answers } from './jev/policy.ts';
+import { explain, routeToolbox, type Answers, type RouteContext } from './jev/policy.ts';
 
 export type Judge = (prompt: string) => Promise<{ answers: Answers; model: string }>;
 
@@ -26,7 +26,7 @@ export function deciderFromEnv(env: NodeJS.ProcessEnv = process.env): DeciderDep
   return { source: 'none', judge: null };
 }
 
-export async function decideToolbox(prompt: string, deps: DeciderDeps = deciderFromEnv()): Promise<DecisionEnvelope> {
+export async function decideToolbox(prompt: string, deps: DeciderDeps = deciderFromEnv(), ctx: RouteContext = {}): Promise<DecisionEnvelope> {
   const t0 = Date.now();
   if (!deps.judge) {
     const decision = routeToolbox(null, new Error('no decision backend'));
@@ -34,7 +34,7 @@ export async function decideToolbox(prompt: string, deps: DeciderDeps = deciderF
   }
   try {
     const { answers, model } = await deps.judge(prompt);
-    const decision = routeToolbox(answers);
+    const decision = routeToolbox(answers, undefined, ctx);
     return { prompt, decision, source: deps.source, model, ms: Date.now() - t0, why: explain(decision) };
   } catch (err) {
     const decision = routeToolbox(null, err);

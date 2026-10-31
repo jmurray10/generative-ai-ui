@@ -7,9 +7,9 @@ import { ASK, T } from './router.questions.ts';
 function base(over: Partial<Record<keyof Answers, unknown>> = {}): Answers {
   const a = {
     design: { choice: 'ops_console', probabilities: { editorial_serif: 0.05, ops_console: 0.9, soft_consumer: 0.03, unclear: 0.02 }, confidence: 0.9 },
-    render: { choice: 'registry', probabilities: { registry: 0.85, sandboxed_react: 0.1, unclear: 0.05 }, confidence: 0.85 },
+    render: { choice: 'registry', probabilities: { registry: 0.85, sandboxed_react: 0.15 }, confidence: 0.85 },
     specificity: { score: 1.9 },
-    need_stepper: { noul: 0.05 }, need_table: { noul: 0.9 }, need_drawer: { noul: 0.7 }, need_citations: { noul: 0.1 },
+    need_stepper: { noul: 0.05 }, need_table: { noul: 0.1 }, need_drawer: { noul: 0.1 }, need_citations: { noul: 0.1 },
     need_approval: { noul: 0.1 }, async_data: { noul: 0.2 },
     miss_audience: { noul: 0.1 }, miss_data: { noul: 0.1 }, miss_action: { noul: 0.1 },
     injection: { noul: 0.01 }, contradictory: { noul: 0.02 },
@@ -23,9 +23,18 @@ test('routes a specific prompt and always keeps the base checks', () => {
   if (d.kind !== 'route') return;
   assert.equal(d.designSystem, 'ops_console');
   assert.equal(d.renderMode, 'registry');
-  assert.deepEqual(d.components, ['table', 'drawer']);
+  assert.deepEqual(d.components, []);
   assert.deepEqual(d.checks, ['axe_core', 'impeccable_loop', 'empty_loading_error_states']);
-  assert.equal(d.evidence['design.p'], 0.9);
+  assert.equal(d.evidence['design.best'], 0.9);
+});
+
+test('a component the registry cannot draw forces the sandboxed React lane', () => {
+  const d = routeToolbox(base({ need_table: { noul: 0.9 }, need_drawer: { noul: 0.7 } }));
+  assert.ok(d.kind === 'route');
+  if (d.kind !== 'route') return;
+  assert.deepEqual(d.components, ['table', 'drawer']);
+  assert.equal(d.renderMode, 'sandboxed_react');
+  assert.match(explain(d).join(' '), /because the registry has no data table and side drawer/);
 });
 
 test('a thrown backend error or missing answers fail closed to hold jev_error', () => {
@@ -46,9 +55,9 @@ test('injection outranks an otherwise-missing slot', () => {
   assert.equal(d.kind === 'hold' && d.reason, 'unsafe_or_injection');
 });
 
-test('contradictory prompts hold at the 0.7 line, not below', () => {
-  assert.equal(routeToolbox(base({ contradictory: { noul: 0.69 } })).kind, 'route');
-  const d = routeToolbox(base({ contradictory: { noul: 0.7 } }));
+test('contradictory prompts hold at the CONTRADICT line, not below', () => {
+  assert.equal(routeToolbox(base({ contradictory: { noul: T.CONTRADICT - 0.01 } })).kind, 'route');
+  const d = routeToolbox(base({ contradictory: { noul: T.CONTRADICT } }));
   assert.equal(d.kind === 'hold' && d.reason, 'contradictory');
 });
 
@@ -62,19 +71,49 @@ test('vague but nothing clearly missing falls through to the design gate', () =>
   assert.equal(d.kind, 'route');
 });
 
-test('design unclear, or picked below PICK, asks for the audience', () => {
-  const unclear = routeToolbox(base({ design: { choice: 'unclear', probabilities: { unclear: 0.9 } } }));
+test('design unclear, or best pick below PICK, asks for the audience', () => {
+  const unclear = routeToolbox(base({ design: { choice: 'unclear', probabilities: { unclear: 0.9, ops_console: 0.1 } } }));
   assert.equal(unclear.kind === 'ask' && unclear.slot, 'audience');
   // high reported confidence does not rescue a low picked probability
-  const low = routeToolbox(base({ design: { choice: 'ops_console', probabilities: { ops_console: 0.55 }, confidence: 0.99 } }));
+  const low = routeToolbox(base({ design: { choice: 'ops_console', probabilities: { ops_console: T.PICK - 0.05 }, confidence: 0.99 } }));
   assert.equal(low.kind === 'ask' && low.slot, 'audience');
+  // a high P(unclear) asks even when one concrete style leads
+  const split = routeToolbox(base({ design: { choice: 'ops_console', probabilities: { ops_console: T.PICK, unclear: T.DESIGN_UNCLEAR } } }));
+  assert.equal(split.kind, 'ask');
 });
 
-test('render unclear or low holds with low_confidence', () => {
-  const d = routeToolbox(base({ render: { choice: 'sandboxed_react', probabilities: { sandboxed_react: 0.6 } } }));
-  assert.equal(d.kind === 'hold' && d.reason, 'low_confidence');
-  const u = routeToolbox(base({ render: { choice: 'unclear', probabilities: { unclear: 0.95 } } }));
-  assert.equal(u.kind === 'hold' && u.reason, 'low_confidence');
+test('an unsure render lane defaults to the sandbox instead of holding', () => {
+  const d = routeToolbox(base({ render: { choice: 'registry', probabilities: { registry: T.RENDER_PICK - 0.01, sandboxed_react: 0.31 } } }));
+  assert.equal(d.kind === 'route' && d.renderMode, 'sandboxed_react');
+  const sure = routeToolbox(base({ render: { choice: 'registry', probabilities: { registry: T.RENDER_PICK } } }));
+  assert.equal(sure.kind === 'route' && sure.renderMode, 'registry');
+});
+
+test('after one answer the policy never asks again: it routes or holds', () => {
+  const vague = { specificity: { score: 0.3 }, miss_audience: { noul: 0.95 }, miss_data: { noul: 0.95 }, miss_action: { noul: 0.95 } };
+  assert.equal(routeToolbox(base(vague)).kind, 'ask');
+  const d = routeToolbox(base(vague), undefined, { answered: true });
+  assert.equal(d.kind, 'route');
+  // style still a guess after the answer: hold low_confidence, with a reason that says why
+  const guess = base({ ...vague, design: { choice: 'unclear', probabilities: { unclear: 0.7, ops_console: T.PICK_AFTER - 0.05 } } });
+  const h = routeToolbox(guess, undefined, { answered: true });
+  assert.equal(h.kind === 'hold' && h.reason, 'low_confidence');
+  assert.match(explain(h)[0], /Asking again would loop/);
+  // a middling style after the answer is enough to build
+  const mid = base({ design: { choice: 'ops_console', probabilities: { ops_console: T.PICK_AFTER, soft_consumer: T.PICK_AFTER - 0.1 } } });
+  assert.equal(routeToolbox(mid).kind, 'ask');
+  assert.equal(routeToolbox(mid, undefined, { answered: true }).kind, 'route');
+  // safety holds still apply after an answer
+  const inj = routeToolbox(base({ injection: { noul: 0.9 } }), undefined, { answered: true });
+  assert.equal(inj.kind === 'hold' && inj.reason, 'unsafe_or_injection');
+});
+
+test('no answers sequence can loop: every answered decision is route or hold', () => {
+  for (const spec of [0, 0.5, 1, 1.5, 2]) for (const miss of [0, 0.5, 1]) for (const pick of [0.2, 0.5, 0.9]) {
+    const a = base({ specificity: { score: spec }, miss_audience: { noul: miss }, miss_data: { noul: miss }, miss_action: { noul: miss },
+      design: { choice: 'ops_console', probabilities: { ops_console: pick, unclear: 1 - pick } } });
+    assert.notEqual(routeToolbox(a, undefined, { answered: true }).kind, 'ask');
+  }
 });
 
 test('approval card joins in the maybe band; other components need COMP_YES', () => {
@@ -101,6 +140,6 @@ test('explain writes one plain line per hold reason', () => {
 test('explain names the real reason for an ask', () => {
   const vague = routeToolbox(base({ specificity: { score: 0.4 }, miss_data: { noul: 0.92 } }));
   assert.match(explain(vague)[1], /Specificity 0\.40/);
-  const style = routeToolbox(base({ design: { choice: 'soft_consumer', probabilities: { soft_consumer: 0.6 } } }));
-  assert.match(explain(style)[1], /visual style is not clear enough: the best design-system pick is 60%/);
+  const style = routeToolbox(base({ design: { choice: 'soft_consumer', probabilities: { soft_consumer: 0.5, unclear: 0.1 } } }));
+  assert.match(explain(style)[1], /visual style is not clear enough: the best design-system pick is 50%/);
 });

@@ -51,7 +51,7 @@ export const DesignSystemsShowcase: React.FC<ShowcaseProps> = ({ onDesign, onCha
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
-      if (t.closest('input,textarea,select,[contenteditable]')) return;
+      if (t.closest('input:not([type=checkbox]):not([type=radio]),textarea,select,[contenteditable]')) return;
       const i = Number(e.key) - 1;
       if (i >= 0 && i < DESIGN_SYSTEMS.length) setActive(DESIGN_SYSTEMS[i].id);
     };
@@ -125,7 +125,7 @@ export const DesignSystemsShowcase: React.FC<ShowcaseProps> = ({ onDesign, onCha
 };
 
 const SlotView: React.FC<{ slot: Slot; design: DesignSystem }> = ({ slot, design }) => {
-  if (slot.status === 'idle') return <p className="text-muted">Nothing generated yet.</p>;
+  if (slot.status === 'idle') return <p className="text-muted">Nothing generated yet. Decide the tools, then generate under all three DESIGN.md files.</p>;
   if (slot.status === 'loading') return <p className="text-muted" role="status">Grok is generating with this DESIGN.md…</p>;
   if (slot.status === 'error') return <p className="text-ink" role="alert">Generation failed: {slot.error}</p>;
   return (

@@ -65,7 +65,7 @@ export function showcaseRouter(generator: Generator, port: number, allow: (req: 
   r.post('/api/decide', async (req: Request, res: Response) => {
     const prompt = text(req.body?.prompt);
     if (!prompt) return void res.status(400).json({ error: 'A non-empty "prompt" string is required.' });
-    res.json(await decideToolbox(prompt));
+    res.json(await decideToolbox(prompt, undefined, { answered: req.body?.answered === true }));
   });
 
   r.get('/api/design-systems', (_req, res) => {

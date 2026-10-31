@@ -19,6 +19,15 @@ All notable changes to this project are documented here. The format follows
   registry. `designSystem`/`lane` options on `/api/stream`.
 - `npm run showcases:live` live gate. Unit tests for policy, critique loop,
   citation checks, intake rules and wizard state.
+- Labelled Jev prompt set (`scripts/jev-prompts.json`, 42 prompts, tune and
+  held-out splits) and `scripts/jev-eval.ts` to score and sweep thresholds.
+  Held-out on jev-1.13.0: 16/17; safety holds 10/10.
+- The router asks at most one question. After an answer it routes or holds
+  (`answered` on `/api/decide`). A component the registry can't draw forces
+  the sandboxed React lane, and an unsure lane defaults to the sandbox.
+- Showcase pages have a title, a one-line purpose and a fictional-data note.
+  The workbench answer panel names the question it answers, and its voice
+  surfaces are split (queue, document, answer).
 
 ### Changed
 - Default text generation is Grok `grok-4.7` through the xAI Responses API
@@ -35,6 +44,9 @@ All notable changes to this project are documented here. The format follows
   returned to the browser.
 
 ### Fixed
+- Intake wizard: going Back and Next without changes no longer logs a second
+  "Reviewer confirmed" line.
+- Number-key and j/k shortcuts now work while a checkbox or radio has focus.
 - Artifact frames may load Google Fonts (`fonts.googleapis.com` stylesheets and
   `fonts.gstatic.com` files). Other origins stay blocked.
 - Multi-screen routing no longer treats a quiz or a "flow field" as several pages.

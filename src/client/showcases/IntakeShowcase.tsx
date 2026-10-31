@@ -40,15 +40,15 @@ export const IntakeShowcase: React.FC<ShowcaseProps> = ({ onDesign, onChange }) 
   }, [s.text]);
 
   if (!canBuild(decision)) {
-    return <div className="mx-auto max-w-xl"><DecisionPanel state={decision} onAnswer={answer} onOverride={override} onRetry={() => void decide(PROMPT)} /></div>;
+    return <div className="max-w-xl"><DecisionPanel state={decision} onAnswer={answer} onOverride={override} onRetry={() => void decide(PROMPT)} /></div>;
   }
 
   const showApproval = !route || route.components.includes('approval_card');
 
   return (
-    <div className="mx-auto grid max-w-5xl gap-4 lg:grid-cols-[1fr_20rem]">
+    <div className="grid max-w-5xl gap-4 lg:grid-cols-[1fr_20rem]">
       <div data-voice-surface="Intake wizard" className="min-w-0 space-y-4">
-        <ol aria-label="Steps" className="flex flex-wrap gap-2">
+        <ol aria-label="Steps" className="grid grid-cols-4 gap-1 sm:gap-2">
           {STEPS.map((label, i) => (
             <li key={label}>
               <button
@@ -56,7 +56,7 @@ export const IntakeShowcase: React.FC<ShowcaseProps> = ({ onDesign, onChange }) 
                 onClick={() => dispatch({ type: 'goto', step: i as Step })}
                 disabled={!canGo(s, i as Step)}
                 aria-current={s.step === i ? 'step' : undefined}
-                className={`rounded-full border px-4 py-2 text-sm ${s.step === i ? 'border-accent bg-panel font-semibold text-ink' : 'border-edge text-muted'} disabled:opacity-50`}
+                className={`w-full rounded-full border px-1 py-2 text-xs sm:px-4 sm:text-sm ${s.step === i ? 'border-accent bg-panel font-semibold text-ink' : 'border-edge text-muted'} disabled:opacity-50`}
               >
                 {i + 1}. {label}
               </button>

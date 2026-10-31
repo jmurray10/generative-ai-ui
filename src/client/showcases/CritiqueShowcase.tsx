@@ -79,6 +79,9 @@ export const CritiqueShowcase: React.FC<ShowcaseProps> = ({ onDesign, onChange }
           >
             2. Run the critique loop
           </button>
+          {!canBuild(state) && run.status !== 'running' && (
+            <p className="mt-2 text-xs text-muted">{state.status === 'done' && state.envelope.decision.kind === 'ask' ? 'Answer the question above first.' : 'Decide the tools first.'}</p>
+          )}
         </div>
         <section aria-labelledby="round-log" data-voice-surface="Critique rounds" className="border border-edge bg-panel p-3 text-sm">
           <h2 id="round-log" className="text-xs font-semibold uppercase tracking-wider text-muted">Round log</h2>
@@ -128,8 +131,8 @@ export const CritiqueShowcase: React.FC<ShowcaseProps> = ({ onDesign, onChange }
             <ReactArtifact code={current.code} height={640} />
           </>
         ) : (
-          <div className="grid min-h-[24rem] place-items-center border border-dashed border-edge text-muted">
-            {run.status === 'running' ? 'Generating round 0…' : 'The rendered rounds show up here.'}
+          <div className="grid min-h-[24rem] place-items-center border border-dashed border-edge p-6 text-center text-muted">
+            {run.status === 'running' ? 'Generating round 0…' : 'Each round renders here, with its Impeccable findings beside it.'}
           </div>
         )}
       </div>

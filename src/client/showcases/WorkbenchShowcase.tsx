@@ -18,7 +18,7 @@ const FORCED: { id: Forced; label: string }[] = [
 ];
 
 type Docs = { status: 'loading' } | { status: 'error'; error: string } | { status: 'done'; docs: ReviewDoc[] };
-type Ans = { status: 'empty' } | { status: 'loading'; question: string } | { status: 'error'; question: string; error: string } | { status: 'done'; answer: WorkbenchAnswer };
+type Ans = { status: 'empty' } | { status: 'loading'; question: string } | { status: 'error'; question: string; error: string } | { status: 'done'; question: string; answer: WorkbenchAnswer };
 
 const lineId = (page: number, line: number) => `wb-p${page}-l${line}`;
 
@@ -70,7 +70,7 @@ export const WorkbenchShowcase: React.FC<ShowcaseProps> = ({ onDesign, onChange 
     const simulate = forced === 'unverifiable' ? 'unverifiable' : forced === 'error' ? 'error' : undefined;
     try {
       const answer = await postJSON<WorkbenchAnswer>('/api/showcase/workbench/ask', { docId: doc.id, question: q, simulate }, ctrl.signal);
-      if (!ctrl.signal.aborted) setAns({ status: 'done', answer });
+      if (!ctrl.signal.aborted) setAns({ status: 'done', question: q, answer });
     } catch (e) {
       if (!ctrl.signal.aborted) setAns({ status: 'error', question: q, error: (e as Error).message });
     }
@@ -93,7 +93,7 @@ export const WorkbenchShowcase: React.FC<ShowcaseProps> = ({ onDesign, onChange 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
-      if (t.closest('input,textarea,select')) return;
+      if (t.closest('input:not([type=checkbox]):not([type=radio]),textarea,select,[contenteditable]')) return;
       if (e.key === 'j' || e.key === 'k') {
         if (!list.length) return;
         e.preventDefault();
@@ -121,23 +121,20 @@ export const WorkbenchShowcase: React.FC<ShowcaseProps> = ({ onDesign, onChange 
 
   return (
     <div className="space-y-3">
-      <div className="grid items-start gap-3 lg:grid-cols-[1fr_22rem]">
-        <div role="radiogroup" aria-labelledby="wb-forced" className="flex flex-wrap items-center gap-2 border border-edge bg-panel px-3 py-2 text-sm">
-          <span id="wb-forced" className="text-muted">Preview a state (demo toggle):</span>
-          {FORCED.map((f) => (
-            <label key={f.id} className={`cursor-pointer rounded-lg border px-2 py-0.5 ${forced === f.id ? 'border-accent text-ink' : 'border-edge text-muted'}`}>
-              <input type="radio" name="forced" value={f.id} checked={forced === f.id} onChange={() => setForced(f.id)} className="sr-only" />
-              {f.label}
-            </label>
-          ))}
-          <span className="ml-auto font-data text-xs text-muted">j/k queue · / ask · [ ] citations</span>
-        </div>
-        <DecisionPanel state={state} onAnswer={answerAsk} onOverride={override} onRetry={() => void decide(PROMPT)} />
+      <div role="radiogroup" aria-labelledby="wb-forced" className="flex flex-wrap items-center gap-2 border border-edge bg-panel px-3 py-2 text-sm">
+        <span id="wb-forced" className="text-muted">Preview a state (demo toggle):</span>
+        {FORCED.map((f) => (
+          <label key={f.id} className={`cursor-pointer rounded-lg border px-2 py-0.5 ${forced === f.id ? 'border-accent text-ink' : 'border-edge text-muted'}`}>
+            <input type="radio" name="forced" value={f.id} checked={forced === f.id} onChange={() => setForced(f.id)} className="sr-only" />
+            {f.label}
+          </label>
+        ))}
+        <span className="ml-auto font-data text-xs text-muted">j/k queue · / ask · [ ] citations</span>
       </div>
 
-      <div data-voice-surface="Review workbench" className="grid min-h-[34rem] border border-edge lg:grid-cols-[16rem_1fr_24rem]">
+      <div className="grid min-h-[34rem] border border-edge lg:grid-cols-[16rem_1fr_24rem]">
         {/* Queue */}
-        <section aria-labelledby="wb-queue" className="border-b border-edge bg-panel lg:border-b-0 lg:border-r">
+        <section aria-labelledby="wb-queue" data-voice-surface="Queue" className="border-b border-edge bg-panel lg:border-b-0 lg:border-r">
           <h2 id="wb-queue" className="border-b border-edge px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted">Queue</h2>
           {docs.status === 'loading' && <SkeletonRows label="Loading the queue…" />}
           {docs.status === 'error' && <PanelError message={`The queue did not load: ${docs.error}`} onRetry={() => void loadDocs(forced === 'error' ? 'live' : forced)} />}
@@ -162,7 +159,7 @@ export const WorkbenchShowcase: React.FC<ShowcaseProps> = ({ onDesign, onChange 
         </section>
 
         {/* Document viewer */}
-        <section aria-labelledby="wb-doc" className="min-w-0 border-b border-edge lg:border-b-0 lg:border-r">
+        <section aria-labelledby="wb-doc" data-voice-surface="Document viewer (the source document, not an answer)" className="min-w-0 border-b border-edge lg:border-b-0 lg:border-r">
           <h2 id="wb-doc" className="border-b border-edge px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted">
             Document{doc ? `: ${doc.title}` : ''}
           </h2>
@@ -194,7 +191,7 @@ export const WorkbenchShowcase: React.FC<ShowcaseProps> = ({ onDesign, onChange 
         </section>
 
         {/* Answer panel */}
-        <section aria-labelledby="wb-answer" className="min-w-0 bg-panel">
+        <section aria-labelledby="wb-answer" data-voice-surface="AI answer panel (the current answer and whether code verified it)" className="min-w-0 bg-panel">
           <h2 id="wb-answer" className="border-b border-edge px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted">AI answer</h2>
           <div className="space-y-3 p-3 text-sm">
             <form onSubmit={(e) => { e.preventDefault(); void ask(question); }} className="flex gap-2">
@@ -203,7 +200,8 @@ export const WorkbenchShowcase: React.FC<ShowcaseProps> = ({ onDesign, onChange 
               <button type="submit" disabled={!doc || !question.trim()} className="rounded-lg bg-accent px-3 py-1 font-medium text-accent-ink disabled:opacity-50">Ask</button>
             </form>
             {doc && (
-              <div className="flex flex-col gap-1">
+              <div className="flex flex-col gap-1" role="group" aria-labelledby="wb-suggested">
+                <p id="wb-suggested" className="text-xs text-muted">Suggested questions</p>
                 {doc.questions.map((q) => (
                   <button key={q} type="button" onClick={() => { setQuestion(q); void ask(q); }} className="rounded-lg border border-edge px-2 py-1 text-left text-muted hover:border-accent hover:text-ink">{q}</button>
                 ))}
@@ -212,6 +210,10 @@ export const WorkbenchShowcase: React.FC<ShowcaseProps> = ({ onDesign, onChange 
             <AnswerView ans={ans} verifyOn={verifyOn} onCite={(c) => focusCite(citations.indexOf(c))} onRetry={() => ans.status === 'error' && void ask(ans.question)} hasDoc={Boolean(doc)} />
           </div>
         </section>
+      </div>
+
+      <div className="max-w-3xl">
+        <DecisionPanel state={state} onAnswer={answerAsk} onOverride={override} onRetry={() => void decide(PROMPT)} />
       </div>
     </div>
   );
@@ -225,6 +227,7 @@ const AnswerView: React.FC<{ ans: Ans; verifyOn: boolean; hasDoc: boolean; onCit
   const unverified = a.status === 'couldnt_verify';
   return (
     <div className="space-y-2" aria-live="polite">
+      <p className="text-xs text-muted">Current answer to: <span className="text-ink">{ans.question}</span></p>
       <p className="font-medium text-ink">
         <StatusDot tone={!verifyOn || unverified ? 'warn' : 'ok'} />
         {!verifyOn

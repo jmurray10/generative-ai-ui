@@ -82,10 +82,15 @@ export function intakeReducer(s: IntakeState, a: IntakeAction): IntakeState {
       return { ...s, confirmed: { ...s.confirmed, [a.id]: a.value } };
     case 'goto': {
       if (!canGo(s, a.step)) return s;
-      // Leaving step 1 records which values a person changed, once per visit.
-      const audit = s.step === 1 && a.step > 1
-        ? [...s.audit, stamp(`Reviewer confirmed the fields${Object.values(s.edited).some(Boolean) ? ` and edited ${FIELDS.filter((f) => s.edited[f.id]).map((f) => f.label).join(', ')}` : ''}`)]
-        : s.audit;
+      // Leaving step 1 records what the reviewer confirmed. Going Back and Next again with the
+      // same values adds nothing; a revisit that changes the edits adds one new line.
+      let audit = s.audit;
+      if (s.step === 1 && a.step > 1) {
+        const editedLabels = FIELDS.filter((f) => s.edited[f.id]).map((f) => f.label);
+        const what = `Reviewer confirmed the fields${editedLabels.length ? ` and edited ${editedLabels.join(', ')}` : ''}`;
+        const last = [...s.audit].reverse().find((e) => e.what.startsWith('Reviewer confirmed'));
+        if (last?.what !== what) audit = [...s.audit, stamp(what)];
+      }
       return { ...s, step: a.step, audit };
     }
     case 'decide':

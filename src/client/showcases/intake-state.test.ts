@@ -61,3 +61,21 @@ test('editing a value back to the model value clears the edited mark', () => {
   s = intakeReducer(s, { type: 'edit', id: 'country', value: 'United States' });
   assert.equal(s.edited.country, false);
 });
+
+test('Back and Next with unchanged values logs "Reviewer confirmed" once; a new edit logs once more', () => {
+  let s = intakeReducer(initialIntake, { type: 'extract_ok', extraction });
+  s = intakeReducer(s, { type: 'confirm', id: 'legal_name', value: true });
+  for (const [id, v] of [['contact_email', 'a@b.example'], ['tax_id', '83-1047265'], ['start_date', '2027-02-01']] as const) s = intakeReducer(s, { type: 'edit', id, value: v });
+  const confirmations = (x: typeof s) => x.audit.filter((e) => e.what.startsWith('Reviewer confirmed')).length;
+  s = intakeReducer(s, { type: 'goto', step: 2 });
+  s = intakeReducer(s, { type: 'goto', step: 1 });
+  s = intakeReducer(s, { type: 'goto', step: 2 });
+  s = intakeReducer(s, { type: 'goto', step: 1 });
+  s = intakeReducer(s, { type: 'goto', step: 3 });
+  assert.equal(confirmations(s), 1);
+  s = intakeReducer(s, { type: 'goto', step: 1 });
+  s = intakeReducer(s, { type: 'edit', id: 'country', value: 'Canada' });
+  s = intakeReducer(s, { type: 'goto', step: 2 });
+  assert.equal(confirmations(s), 2);
+  assert.match(s.audit.at(-1)!.what, /edited Contact email, Tax ID, Country, Start date/);
+});

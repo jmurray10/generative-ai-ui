@@ -20,7 +20,6 @@ export type Answers = {
 
 const ALWAYS_ON: Check[] = ['axe_core', 'impeccable_loop', 'empty_loading_error_states'];
 const DESIGN: ReadonlySet<string> = new Set(['editorial_serif', 'ops_console', 'soft_consumer']);
-const RENDER: ReadonlySet<string> = new Set(['registry', 'sandboxed_react']);
 
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : NaN);
 const r3 = (v: number) => Math.round(v * 1000) / 1000;
@@ -56,7 +55,25 @@ export function evidenceOf(a: Answers): Record<string, number> {
   return e;
 }
 
-export function routeToolbox(answers: Answers | null | undefined, error?: unknown): Decision {
+export type Thresholds = { readonly [K in keyof typeof T]: number };
+
+export interface RouteContext {
+  /** True once the person has answered one ask. The policy then routes or holds; it never asks again. */
+  answered?: boolean;
+}
+
+const CONCRETE: DesignSystem[] = ['editorial_serif', 'ops_console', 'soft_consumer'];
+/** Components the registry lane cannot draw. Needing one sends the UI to the sandboxed React lane. */
+const NEEDS_SANDBOX: ReadonlySet<ToolboxComponent> = new Set(['stepper', 'table', 'drawer', 'citation_viewer']);
+
+/** Best concrete design system and its probability (ignores "unclear"). */
+export function bestDesign(a: ChoiceAnswer): [DesignSystem, number] {
+  return CONCRETE.map((d) => [d, num(a.probabilities?.[d])] as [DesignSystem, number])
+    .filter(([, p]) => !Number.isNaN(p))
+    .reduce((best, cur) => (cur[1] > best[1] ? cur : best), ['ops_console', -1] as [DesignSystem, number]);
+}
+
+export function routeToolbox(answers: Answers | null | undefined, error?: unknown, ctx: RouteContext = {}, t: Thresholds = T): Decision {
   if (error || !answers) return { kind: 'hold', reason: 'jev_error', evidence: {} };
   try {
     assertWellFormed(answers);
@@ -64,26 +81,31 @@ export function routeToolbox(answers: Answers | null | undefined, error?: unknow
     return { kind: 'hold', reason: 'jev_error', evidence: {} };
   }
   const evidence = evidenceOf(answers);
+  const unclearP = num(answers.design.probabilities?.unclear);
+  if (!Number.isNaN(unclearP)) evidence['design.unclear'] = r3(unclearP);
+  if (ctx.answered) evidence.answered = 1;
 
-  if (answers.injection.noul >= T.INJECT) return { kind: 'hold', reason: 'unsafe_or_injection', evidence };
-  if (answers.contradictory.noul >= T.CONTRADICT) return { kind: 'hold', reason: 'contradictory', evidence };
+  // Safety first, on every pass, answered or not.
+  if (answers.injection.noul >= t.INJECT) return { kind: 'hold', reason: 'unsafe_or_injection', evidence };
+  if (answers.contradictory.noul >= t.CONTRADICT) return { kind: 'hold', reason: 'contradictory', evidence };
 
-  if (answers.specificity.score < T.MARGIN) {
-    const missing: [MissingSlot, number][] = [
-      ['audience', answers.miss_audience.noul],
-      ['data_source', answers.miss_data.noul],
-      ['primary_action', answers.miss_action.noul],
-    ];
-    const [slot, p] = missing.reduce((best, cur) => (cur[1] > best[1] ? cur : best));
-    if (p >= T.MISSING) return { kind: 'ask', slot, prompt: ASK[slot], evidence };
-  }
+  const [design, designP] = bestDesign(answers.design);
+  evidence['design.best'] = r3(designP);
+  const designUnclear = designP < t.PICK || (!Number.isNaN(unclearP) && unclearP >= t.DESIGN_UNCLEAR);
 
-  const design = answers.design;
-  if (!DESIGN.has(design.choice) || pickedProbability(design) < T.PICK) {
-    return { kind: 'ask', slot: 'audience', prompt: ASK.audience, evidence };
-  }
-  const render = answers.render;
-  if (!RENDER.has(render.choice) || pickedProbability(render) < T.PICK) {
+  if (!ctx.answered) {
+    if (answers.specificity.score < t.MARGIN) {
+      const missing: [MissingSlot, number][] = [
+        ['audience', answers.miss_audience.noul],
+        ['data_source', answers.miss_data.noul],
+        ['primary_action', answers.miss_action.noul],
+      ];
+      const [slot, p] = missing.reduce((best, cur) => (cur[1] > best[1] ? cur : best));
+      if (p >= t.MISSING) return { kind: 'ask', slot, prompt: ASK[slot], evidence };
+    }
+    if (designUnclear) return { kind: 'ask', slot: 'audience', prompt: ASK.audience, evidence };
+  } else if (designP < t.PICK_AFTER) {
+    // One answer is all we ask for. If the style is still a guess, hold instead of looping.
     return { kind: 'hold', reason: 'low_confidence', evidence };
   }
 
@@ -94,22 +116,33 @@ export function routeToolbox(answers: Answers | null | undefined, error?: unknow
     ['drawer', answers.need_drawer.noul],
     ['citation_viewer', answers.need_citations.noul],
   ];
-  for (const [c, p] of want) if (p >= T.COMP_YES) components.push(c);
+  for (const [c, p] of want) if (p >= t.COMP_YES) components.push(c);
   // Code owns the approval card: it shows even in the maybe band.
-  if (answers.need_approval.noul >= T.COMP_MAYBE) components.push('approval_card');
+  if (answers.need_approval.noul >= t.COMP_MAYBE) components.push('approval_card');
+
+  // Render path. Code rule first: a component the registry cannot draw means the sandbox.
+  // Otherwise use the registry only when Jev is confident it fits; when unsure, the sandboxed
+  // React lane is the safe default because it can draw anything and is still isolated.
+  const registryP = num(answers.render.probabilities?.registry);
+  const renderMode: RenderMode = components.some((c) => NEEDS_SANDBOX.has(c)) || !(registryP >= t.RENDER_PICK) ? 'sandboxed_react' : 'registry';
+  evidence['render.registry'] = r3(registryP);
 
   const checks: Check[] = [...ALWAYS_ON];
-  if (answers.need_citations.noul >= T.COMP_MAYBE) checks.push('couldnt_verify_state');
+  if (answers.need_citations.noul >= t.COMP_MAYBE) checks.push('couldnt_verify_state');
 
-  return {
-    kind: 'route',
-    designSystem: design.choice as DesignSystem,
-    renderMode: render.choice as RenderMode,
-    components,
-    checks,
-    evidence,
-  };
+  return { kind: 'route', designSystem: design, renderMode, components, checks, evidence };
 }
+
+const COMPONENT_LABEL: Record<ToolboxComponent, string> = {
+  stepper: 'stepper', table: 'data table', drawer: 'side drawer', citation_viewer: 'citation viewer', approval_card: 'approval card',
+};
+const CHECK_LABEL: Record<Check, string> = {
+  axe_core: 'accessibility scan (axe-core)',
+  impeccable_loop: 'Impeccable design scan',
+  empty_loading_error_states: 'empty/loading/error states',
+  couldnt_verify_state: "a \"couldn't verify\" state",
+};
+const list = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
 
 const pct = (v: number | undefined) => (typeof v === 'number' && Number.isFinite(v) ? `${Math.round(v * 100)}%` : 'n/a');
 
@@ -121,7 +154,9 @@ export function explain(d: Decision): string[] {
       jev_error: 'Held: the decision layer did not return usable judgments, so nothing was built (fail closed).',
       unsafe_or_injection: `Held: the prompt looks like it tries to override instructions or reach secrets (injection ${pct(e.injection)}, threshold ${pct(T.INJECT)}).`,
       contradictory: `Held: the prompt has requirements that contradict each other (${pct(e.contradictory)}, threshold ${pct(T.CONTRADICT)}).`,
-      low_confidence: `Held: not confident whether the registry can build this (render pick ${pct(e['render.p'])}, needs ${pct(T.PICK)}).`,
+      low_confidence: e.answered && (e['design.best'] ?? 0) < T.PICK_AFTER
+        ? `Held: even after your answer the visual style is a guess (best pick ${pct(e['design.best'])}, needs ${pct(T.PICK_AFTER)}). Asking again would loop, so nothing was built.`
+        : 'Held: not confident enough to build.',
     };
     return [why[d.reason]];
   }
@@ -129,14 +164,19 @@ export function explain(d: Decision): string[] {
     const spec = typeof e.specificity === 'number' ? e.specificity : NaN;
     const because = spec < T.MARGIN
       ? `Specificity ${spec.toFixed(2)} of 2 is below ${T.MARGIN}, and the ${d.slot.replace('_', ' ')} looks missing (audience ${pct(e.miss_audience)}, data ${pct(e.miss_data)}, action ${pct(e.miss_action)}).`
-      : `The visual style is not clear enough: the best design-system pick is ${pct(e['design.p'])}, and it needs ${pct(T.PICK)}.`;
+      : `The visual style is not clear enough: the best design-system pick is ${pct(e['design.best'])} (needs ${pct(T.PICK)}) and "unclear" is ${pct(e['design.unclear'])} (limit ${pct(T.DESIGN_UNCLEAR)}).`;
     return [`Asking before building: "${d.prompt}"`, because];
   }
   const lines = [
-    `Design system: ${d.designSystem.replace('_', ' ')} (picked at ${pct(e['design.p'])}, needs ${pct(T.PICK)}).`,
-    `Render path: ${d.renderMode === 'registry' ? 'registry components' : 'sandboxed React'} (picked at ${pct(e['render.p'])}).`,
-    d.components.length ? `Components: ${d.components.join(', ').replace(/_/g, ' ')}.` : 'Components: none beyond the base registry.',
-    `Checks: ${d.checks.join(', ').replace(/_/g, ' ')}.`,
+    ...(e.answered ? ['Built from your one answer; the policy never asks twice.'] : []),
+    `Design system: ${d.designSystem.replace('_', ' ')} (picked at ${pct(e['design.best'])}, needs ${pct(T.PICK)}).`,
+    d.renderMode === 'sandboxed_react' && d.components.some((c) => NEEDS_SANDBOX.has(c))
+      ? (() => { const need = d.components.filter((c) => NEEDS_SANDBOX.has(c)).map((c) => COMPONENT_LABEL[c]); return `Render path: sandboxed React, because the registry has no ${list(need)}.`; })()
+      : d.renderMode === 'registry'
+        ? `Render path: registry components (fit at ${pct(e['render.registry'])}, needs ${pct(T.RENDER_PICK)}).`
+        : `Render path: sandboxed React (registry fit only ${pct(e['render.registry'])}; the sandbox can draw anything).`,
+    d.components.length ? `Components: ${list(d.components.map((c) => COMPONENT_LABEL[c]))}.` : 'Components: none beyond the base registry.',
+    `Checks: ${list(d.checks.map((c) => CHECK_LABEL[c]))}.`,
   ];
   if (d.components.includes('approval_card') && (e.need_approval ?? 0) < T.COMP_YES) {
     lines.push(`Approval card added by policy in the maybe band (${pct(e.need_approval)}).`);

@@ -88,56 +88,107 @@ the UI by speech. Gemini Live stays available with `VOICE_PROVIDER=gemini`.
 
 ## Design showcases
 
-Four pages under `/showcases/*` show the design tooling working together. All the
-data in them is synthetic.
+Four pages under `/showcases/*` show the design tooling working together. Every
+company, person and document on them is fictional. Click a still to play the
+clip (real Grok, real Jev, real voice, no hand overrides).
 
-| Page | What it shows |
-| --- | --- |
-| `/showcases/critique` (A) | **Self-critiquing generator.** Round 0 is a vague prompt with no DESIGN.md. Then up to 3 rounds of `npx impeccable@4.8.0 detect` against the rendered artifact, each followed by a Grok fix that follows the chosen DESIGN.md. Every round logs its real finding count and a screenshot, and voice can read the round summary. Nothing is planted. |
-| `/showcases/design-systems` (B) | **One prompt, three design systems.** `design/{editorial-serif,ops-console,soft-consumer}/` each hold a `DESIGN.md` and a `tokens.css`. Registry components read `--gp-*` tokens only. You can switch systems live (keys 1-3), compare "swap only the token file" with a regenerate, and the DESIGN.md is sent in the system prompt on both the registry and ReactArtifact paths. |
-| `/showcases/workbench` (C) | **Review workbench.** A queue, a document viewer that highlights cited lines, and an AI answer panel whose citations link to page and line. Every citation is checked against the source text. Unsupported answers show "Couldn't verify". Demo toggles cover empty, loading, error and couldn't-verify. Keys: j/k for the queue, / to ask, [ ] for citations. axe-core is a gate. |
-| `/showcases/intake` (D) | **Intake wizard.** Grok extracts fields with confidence flags, and each quote is checked against the source. You fix the gaps, review a provisional result (standard or enhanced review), then approve it (with a confirmation checkbox) or send it back (a note is required). State and the audit trail carry across steps. |
+<table>
+<tr>
+<td width="50%"><a href="docs/media/showcases/showcase-a-self-critiquing-generator.mp4"><img src="docs/media/showcases/a-final.png" alt="Self-critiquing generator, round log"></a><br><sub><b>A. Self-critiquing generator</b>: vague prompt → one question → build → Impeccable scan → Grok fix, with real counts per round.</sub></td>
+<td width="50%"><a href="docs/media/showcases/showcase-b-three-design-systems.mp4"><img src="docs/media/showcases/b-regen-soft.png" alt="One prompt under three design systems"></a><br><sub><b>B. One prompt, three design systems</b>: the same report under three DESIGN.md files, or one spec with only the token file swapped.</sub></td>
+</tr>
+<tr>
+<td><a href="docs/media/showcases/showcase-c-review-workbench.mp4"><img src="docs/media/showcases/c-verified.png" alt="Review workbench with verified citations"></a><br><sub><b>C. Review workbench</b>: cited answers checked against the document, and an honest "couldn't verify".</sub></td>
+<td><a href="docs/media/showcases/showcase-d-intake-wizard.mp4"><img src="docs/media/showcases/d-approval.png" alt="Intake wizard approval step"></a><br><sub><b>D. Intake wizard</b>: extraction with confidence flags, gaps, a provisional result, then approve or send back.</sub></td>
+</tr>
+</table>
+
+| Page | What it shows | What is live, what is fixed |
+| --- | --- | --- |
+| `/showcases/critique` (A) | Round 0 is a vague prompt with no DESIGN.md. Then up to 3 rounds of `npx impeccable@4.8.0 detect` against the rendered artifact, each followed by a Grok fix that follows the chosen DESIGN.md. Stops at 0 findings or when a round doesn't improve. | All live: generation, scans and fixes. Nothing is planted. |
+| `/showcases/design-systems` (B) | `design/{editorial-serif,ops-console,soft-consumer}/` each hold a `DESIGN.md` and a `tokens.css`. The DESIGN.md goes verbatim into the system prompt on both render paths. Registry components read `--gp-*` tokens only, so "same spec, swap only the token file" works. Keys 1-3 switch. | All live. |
+| `/showcases/workbench` (C) | A queue, a document viewer that highlights cited lines, and an answer panel whose citations jump to page and line. Code checks each quoted claim against the cited line; anything it can't match shows "Couldn't verify". Demo toggles force empty, loading, error and couldn't-verify. Keys: j/k, /, [ ]. | **The layout is a hand-built template.** The answers (grok-4.7) and the decision are live; the documents are fictional fixtures. |
+| `/showcases/intake` (D) | Grok extracts eight fields, each with a quote that code checks against the source. Confidence flags, gap fixing, a provisional result from fixed rules (standard or enhanced review), then approve (with a review checkbox) or send back (note required). State and the audit trail carry across steps. | **The steps are a hand-built template.** The extraction and the decision are live; the rules are code. |
 
 ### Decision layer: `decideToolbox(prompt) -> Decision`
 
 Each page first asks one typed seam (`src/server/toolbox.ts`, `POST /api/decide`)
 which design system, render path, components and checks to use. The answer is
-`route`, `ask` (one fixed question) or `hold` (with a reason). A "Why these tools"
-panel shows the decision and its source, and voice can read it.
+`route`, `ask` (one fixed question) or `hold` (with a reason). The "Why these
+tools" panel shows the decision, its evidence and its source, and voice can read it.
 
-- **Jev (TypeSafe)** is used when `TYPESAFE_API_KEY` is set. It sends a raw
-  `POST /v1/systemone` with the same shapes as `@typesafe-ai/sdk`. The SDK
-  (0.7.0) needs Node 22 and this repo runs on Node 20, so it isn't a dependency.
-  Jev only answers the questions in `src/server/jev/router.questions.ts`. The
-  routing policy and thresholds are code (`src/server/jev/policy.ts`).
-- **Grok fallback** is used when there's no key. Grok answers the same questions
-  with self-reported probabilities, and the panel labels them that way.
-- **Fails closed:** if a configured Jev call errors, the result is
-  `hold jev_error`. It never quietly falls back to Grok. Injection and
-  contradictory prompts hold too. Only a `low_confidence` hold can be overridden
-  by hand ("Build anyway (my call)").
-- **Tested live against Jev** (`jev-1.13.0`, 2026-10-30) on six golden prompts:
-  - Safety holds (injection, contradictory) and the vague-prompt ask behave as
-    expected, at about 115-560 ms per decision.
-  - With the current thresholds, Jev routes none of the three well-specified
-    prompts on the first try. The workbench prompt asks for an audience (design
-    pick 0.57) and routes after one answer. The wizard prompt holds
-    low_confidence (render pick 0.56). See "Status".
+- **Jev (TypeSafe)** answers the typed questions in
+  `src/server/jev/router.questions.ts` when `TYPESAFE_API_KEY` is set (raw
+  `POST /v1/systemone`, same shapes as `@typesafe-ai/sdk`; the 0.7.0 SDK needs
+  Node 22 and this repo runs on Node 20). Jev never writes text.
+- **Code owns the policy** (`src/server/jev/policy.ts`): safety holds first, then
+  at most **one** question, then route. After one answer the policy routes or
+  holds; it never asks again. A component the registry can't draw (stepper, data
+  table, drawer, citation viewer) forces the sandboxed React lane; when Jev is
+  unsure about the lane, the sandbox is the default.
+- **Fails closed:** a configured Jev that errors gives `hold jev_error`. It never
+  quietly falls back to Grok. Only a `low_confidence` hold can be overridden by
+  hand.
+- **Grok fallback** (no Jev key) answers the same questions with self-reported
+  probabilities, and the panel labels them that way.
+
+**Jev accuracy, measured live** (`jev-1.13.0`, 2026-10-30). The labelled set is
+`scripts/jev-prompts.json`: 42 fictional prompts (16 route, 10 ask, 5 injection,
+5 contradictory, 6 "vague prompt plus one answer"), including hard negatives such
+as an API-key settings page and a dark/light mode toggle. Question wording and
+thresholds were tuned on the 25-prompt tune split only; the 17-prompt held-out
+split was scored once the thresholds were fixed. Re-run with
+`npx tsx scripts/jev-eval.ts --heldout`.
+
+| Split | Result |
+| --- | --- |
+| Tune (25) | 25/25 |
+| Held-out (17) | **16/17 (94.1%)**, the same on two fresh runs. The miss: a developer API-key settings page asked for its audience instead of routing (best style pick 0.54-0.58, needs 0.60). |
+| Safety holds, all splits (10) | 10/10 |
+| The three showcase prompts | route on the first try, no question asked |
+| Latency | about 110-600 ms per decision (Grok fallback: 7-16 s) |
+
+Accuracy is scored on the decision kind (route, ask, or the right hold reason).
+The design-system pick isn't scored: style labels are subjective (Jev put a
+newsroom fact-check tool in ops console where the label said editorial). The
+ask slot is almost always "data source". 17 held-out prompts is a small sample.
 
 Config: `TOOLBOX_DECIDER=auto|jev|grok` (default `auto`: Jev if a key is set,
 otherwise Grok), `TYPESAFE_API_KEY`, `TYPESAFE_BASE_URL`,
 `TYPESAFE_DEFAULT_MODEL` (default pinned `jev-1.13.0`) and `TYPESAFE_TIMEOUT_MS`
 (default 4000).
 
-Live gate: start the server, then run `BASE_URL=http://localhost:8080 npm run
-showcases:live -- a b c d decide`. It calls real Grok (and Jev, if configured),
-runs axe-core on every workbench and wizard state, and writes
-`scripts/screens/showcases-live.json`.
+### Live gate
 
-Honest notes:
-- C and D are hand-built templates. Their AI parts (answers, extraction,
-  citation checks) and the decision are live, but the render-path choice only
-  changes the output on A and B.
+Start the server, then run `BASE_URL=http://localhost:8080 npm run showcases:live
+-- decide a b c d`. It calls real Grok (and Jev, if configured) and checks:
+
+- the decision on safety, vague and showcase prompts, and that an answered prompt
+  never gets asked again;
+- A's loop with real detector counts per round;
+- B's three registry-only generations;
+- C's verified and couldn't-verify answers, the forced states and the keys;
+- D's flags, blocked steps, provisional result, approval and audit trail;
+- axe-core (WCAG 2.1 AA, no serious or critical violations) on every C and D state.
+
+Final runs on 2026-10-30: **41/41 against the Jev server** and **40/41 against
+the Grok fallback**. The one failure is real: in that run A's fix loop went from 3
+findings to 4, so it stopped and kept round 0 ("best round has fewer findings than
+round 0" failed). Other runs went 5 → 0, 6 → 0, 10 → 0 and 3 → 1 → 2.
+
+### Limits
+
+- C and D are templates with live AI parts, not generated UIs. The render-path
+  decision only changes the output on A and B.
+- A's fixes don't always converge: a later round can add a new finding, and the
+  loop then stops and keeps the best round (seen once in the final gate runs).
+- Jev has a 4 s timeout. One call timed out during the recordings, while the
+  box was under heavy load. The page held with `jev_error`, as designed, and the
+  next run routed.
+- Voice answers from what is on screen. A long pause in the middle of a spoken
+  question can end the turn early, and Grok then answers only the second half.
+  The xAI realtime docs don't document a silence-length setting, so the app
+  leaves the server VAD at its defaults.
 - A needs `npx` network access to fetch `impeccable@4.8.0`, or set
   `IMPECCABLE_BIN`.
 
@@ -217,15 +268,11 @@ agent. Optional: `XAI_BASE_URL`, `GROK_REASONING_EFFORT` (default `low`),
 - **Checks:** `npm test` covers spec parsing, the provider switch, the voice event
   map, and the expression sandbox. A live Grok browser run is `node scripts/live-grok.mjs`
   and needs `XAI_API_KEY` (not part of CI).
-- **Design showcases / decision layer:** Jev was tested live on 2026-10-30. Safety
-  holds and asks match the golden prompts. The thresholds in
-  `router.questions.ts` aren't tuned yet: Jev's design and render picks for
-  clear prompts land around 0.55-0.75 against a 0.70 gate, so it asks or holds
-  more than it routes. The Grok fallback takes 7-17 s per decision; Jev takes
-  about 0.1-0.6 s. If the same question gets an answer that doesn't raise the
-  design pick, the policy asks it again.
+- **Design showcases / decision layer:** Jev tuned on a labelled set and
+  measured on a held-out split (16/17), safety holds 10/10, one question at most.
+  See "Design showcases".
 
-**Next:** shareable permalinks + remix; tune the Jev thresholds on a labelled prompt set.
+**Next:** shareable permalinks + remix; grow the labelled Jev set beyond 42 prompts.
 
 ## Project layout
 
