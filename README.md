@@ -43,7 +43,8 @@ instead of regenerating it.
    input and button automatically (`set:rate`, `press:reset`); sandboxed apps expose
    named actions with `window.genui.expose({...})` (`call:play`, `call:flyTo`), which
    run inside their iframe. The agent rebuilds only when you ask for a design or
-   structural change.
+   structural change, and after acting it reports what actually happened (read back
+   from the app), not what it meant to do.
 
 ## Demos
 
@@ -128,6 +129,7 @@ Swagger UI at **`/docs`** (raw spec at `/openapi.json`).
 | POST   | `/api/stream`   | `{ prompt, spec?, lane?, components?, style? }` → SSE build (generate, refine, multi-screen) |
 | POST   | `/api/generate` | `{ prompt }` → `{ spec }` (one-shot JSON) |
 | POST   | `/api/chat`     | `{ message, spec, readable, controls, history }` → `{ reply, acts, spec? }` |
+| POST   | `/api/chat/confirm` | `{ message, results, readable }` → `{ reply }` grounded in what the acts actually did |
 | WS     | `/voice`        | Grok speech-to-speech with `read_ui`, `act_ui`, `refine_ui`, `generate_ui` |
 
 ## Configuration
@@ -148,7 +150,7 @@ Optional: `XAI_BASE_URL`, `GROK_REASONING_EFFORT` (default `low`),
 ## Checks
 
 ```bash
-npm run typecheck && npm test        # 73 unit tests: Jev policy, chat runner, controls, spec, voice events
+npm run typecheck && npm test        # 75 unit tests: Jev policy, chat runner, controls, spec, voice events
 node scripts/e2e.mjs                 # live: Jev route, design brief, chat operating a registry UI and a sandboxed app
 node scripts/voice-agent.mjs         # live: read_ui → act_ui → read_ui over /voice, no rebuild
 node scripts/live-grok.mjs           # live: generate, render, one voice turn

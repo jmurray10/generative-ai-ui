@@ -25,10 +25,10 @@ import { isMultiScreenPrompt } from './screen-route.ts';
 import { specNotices } from './validate.ts';
 import { decideToolbox } from './toolbox.ts';
 import { deciderChoice } from './config.ts';
-import { runChat } from './chat.ts';
+import { confirmActs, runChat } from './chat.ts';
 import { isRenderMode, type GenerateOptions } from './route-hints.ts';
 import { isDesignSystem, type ToolboxComponent } from '../shared/toolbox.ts';
-import type { ChatRequest, UIControl } from '../shared/control.ts';
+import type { ChatRequest, UIActResult, UIControl } from '../shared/control.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..');
@@ -221,6 +221,33 @@ app.post('/api/chat', async (req: Request, res: Response) => {
     console.error('[chat] failed:', (err as Error).message);
     res.status(502).json({ error: 'The model did not answer. Please try again.' });
   }
+});
+
+/**
+ * After the browser runs a chat turn's acts, restate what actually happened from
+ * the real results and the refreshed screen (the first reply was written before
+ * the acts ran). Uses a fast model.
+ */
+app.post('/api/chat/confirm', async (req: Request, res: Response) => {
+  if (!limiter.allow(clientIp(req))) {
+    res.status(429).json({ error: 'Too many requests. Wait a minute and try again.' });
+    return;
+  }
+  const body = (req.body ?? {}) as { message?: unknown; results?: unknown; readable?: unknown };
+  const message = typeof body.message === 'string' ? body.message.trim().slice(0, MAX_PROMPT) : '';
+  const results = Array.isArray(body.results)
+    ? (body.results as UIActResult[]).filter((r) => r && typeof r.action === 'string').slice(0, 12)
+        .map((r) => ({ action: r.action.slice(0, 100), ok: r.ok === true, ...(r.detail != null ? { detail: String(r.detail).slice(0, 300) } : {}) }))
+    : [];
+  if (!message || !results.length) {
+    res.status(400).json({ error: '"message" and a non-empty "results" array are required.' });
+    return;
+  }
+  if (generator.name !== 'grok') {
+    res.json({ reply: results.every((r) => r.ok) ? 'Done.' : 'Some steps did not apply.', ok: results.every((r) => r.ok) });
+    return;
+  }
+  res.json(await confirmActs({ message, results, readable: typeof body.readable === 'string' ? body.readable.slice(0, 8000) : '' }));
 });
 
 // Malformed JSON bodies get a JSON 400, not an HTML error page and a stack trace.

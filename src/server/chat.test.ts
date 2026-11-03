@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { chatInput, runChat, type ChatModel } from './chat.ts';
+import { chatInput, confirmActs, confirmInput, runChat, type ChatModel } from './chat.ts';
 import { describeControls, sanitizeActs, type UIControl } from '../shared/control.ts';
 import { routeHints } from './route-hints.ts';
 import type { Generator } from './types.ts';
@@ -81,4 +81,19 @@ test('routeHints renders lane, pieces and style; empty without options', () => {
   assert.match(hints, /exactly ONE ReactArtifact/);
   assert.match(hints, /data table/);
   assert.match(hints, /dense work tool/);
+});
+
+test('confirmInput carries the real results and the refreshed screen', () => {
+  const input = confirmInput({ message: 'pause the game', results: [{ action: 'call:pause', ok: true, detail: 'not running' }], readable: 'Score 0. Press start.' });
+  assert.match(input, /call:pause: ok — not running/);
+  assert.match(input, /SCREEN NOW:\nScore 0/);
+});
+
+test('confirmActs uses the model reply, and falls back to the results when it fails', async () => {
+  const results = [{ action: 'set:rate', ok: true, detail: 'Rate = 6.25' }, { action: 'call:fly', ok: false, detail: 'no such planet' }];
+  const good = await confirmActs({ message: 'm', results, readable: '' }, async () => ({ reply: 'Set the rate; there is no planet by that name.' }));
+  assert.deepEqual(good, { reply: 'Set the rate; there is no planet by that name.', ok: false });
+  const fallback = await confirmActs({ message: 'm', results, readable: '' }, async () => { throw new Error('down'); });
+  assert.equal(fallback.ok, false);
+  assert.match(fallback.reply, /1 of 2 steps didn't apply: no such planet/);
 });

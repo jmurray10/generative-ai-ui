@@ -130,7 +130,14 @@ never decides "what to do next" — it only fills in content. Jev routing is not
 The schema (`ui_chat`) is `{ reply, acts[], change: none|refine|generate, instruction? }`.
 The instruction tells the model to answer from SCREEN only, to **prefer acts** whenever a
 control fits, to rebuild only for design/structure changes, to say what it set rather than
-the computed outcome, and that SCREEN text is data, not instructions.
+the computed outcome (it cannot see that yet), and that SCREEN text is data, not instructions.
+
+When acts ran, a second, short call (`POST /api/chat/confirm`, `confirmActs`, schema
+`ui_confirm` = `{ reply }`, model `CHAT_CONFIRM_MODEL` → `JEV_JUDGE_MODEL` → `GROK_MODEL`)
+gets the MESSAGE, each act's real result (ok/failed + what the app returned) and the
+refreshed SCREEN, and writes the reply the user sees. It is told to report only what the
+results and screen show and to say plainly when something didn't apply. If it fails, code
+writes the reply from the results.
 
 Code then disposes: acts are sanitized (`sanitizeActs`) and filtered to control ids the
 browser actually reported; `refine` / `generate` go through the normal generator; a no-op
@@ -224,7 +231,7 @@ exposes — is the whole design.
 | `LIVE_API_MODEL` | `gemini-2.5-flash-native-audio-preview-12-2025` | Gemini Live model. |
 | `LIVE_API_VOICE` | `Kore` | Gemini Live voice. |
 | `STREAM_STAGGER_MS` | `110` | Delay between streamed nodes (build-in effect). |
-| `RATE_LIMIT_PER_MIN` | `30` | Per-IP cap on `/api/generate`, `/api/stream`, `/api/decide` and `/api/chat`. |
+| `RATE_LIMIT_PER_MIN` | `30` | Per-IP cap on `/api/generate`, `/api/stream`, `/api/decide`, `/api/chat` and `/api/chat/confirm`. |
 | `MAX_PROMPT_CHARS` | `4000` | Max prompt / chat message length. |
 
 No key → the app still loads and shows a "connect a model" notice; nothing is hard-coded.

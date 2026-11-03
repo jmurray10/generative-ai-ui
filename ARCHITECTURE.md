@@ -384,7 +384,14 @@ decides to:
    degraded notice, is reported as `ok:false` ("I couldn't rebuild it that way") rather
    than claimed.
 
-The reply describes what was set or pressed, not the computed outcome. Without a Grok
+**Grounded confirmation.** That first reply is written before the acts run, so it can
+only say what was asked. When a turn had acts, the client runs them, waits ~0.9 s for
+the screen to settle (sandbox text digests post within 0.7 s), and calls
+`POST /api/chat/confirm` with the per-act results and the refreshed screen text. A fast
+model (`CHAT_CONFIRM_MODEL`, else `JEV_JUDGE_MODEL`) restates what actually happened,
+including failures and outcomes the app reported ("pause() → not running" becomes "the
+game isn't running", and a changed bill comes back with the new total read off the
+screen). If that call fails, code summarizes the results instead. Without a Grok
 generator, a chat message falls back to a plain refine (and the stub reports that no
 model is connected).
 
@@ -543,7 +550,7 @@ scripts/
   judge-speed.ts            # time the Grok judge per model
 ```
 
-Unit tests (`npm test`, 73 tests): `src/server/*.test.ts` (incl. `chat.test.ts`,
+Unit tests (`npm test`, 75 tests): `src/server/*.test.ts` (incl. `chat.test.ts`,
 `toolbox.test.ts`), `src/server/jev/*.test.ts`, `src/client/engine/*.test.ts` (incl.
 `control.test.ts`), `src/client/voice/*.test.ts`.
 
@@ -569,9 +576,9 @@ Unit tests (`npm test`, 73 tests): `src/server/*.test.ts` (incl. `chat.test.ts`,
   are listed in the "why" lines but are not run by the playground.
 - **Sandboxed apps must opt in to be operable.** An artifact that doesn't call
   `genui.expose` can only be read (text digest) or rebuilt, not operated.
-- **Chat acts are reported as what was set, not computed outcomes.** The model replies
-  before the acts run; it can't see the result in the same turn (voice can, by calling
-  `read_ui` again).
+- **Chat confirmation costs a second call.** A turn with acts makes one decision call
+  and one short confirmation call (~1–2 s on the fast model), and the confirmation is
+  only as good as the screen text and the results the app returned.
 - **Gemini paths are thinner:** Gemini Live has no `act_ui`, and with `GENERATOR=gemini`
   chat messages are treated as refines.
 

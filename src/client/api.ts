@@ -1,5 +1,5 @@
 import type { Example, GenerateResponse, UINode, UISpec } from '../shared/spec';
-import type { ChatRequest, ChatResponse } from '../shared/control';
+import type { ChatRequest, ChatResponse, UIActResult } from '../shared/control';
 import type { DecisionEnvelope } from '../shared/toolbox';
 
 export async function fetchExamples(): Promise<Example[]> {
@@ -114,6 +114,11 @@ async function postJSON<T>(url: string, body: unknown, signal?: AbortSignal): Pr
 /** Jev toolbox decision for a prompt: route, ask one question, or hold. */
 export function decide(prompt: string, answered = false, signal?: AbortSignal): Promise<DecisionEnvelope> {
   return postJSON<DecisionEnvelope>('/api/decide', { prompt, answered }, signal);
+}
+
+/** Restate a chat turn from what its acts actually did (after they ran). */
+export function confirmChat(body: { message: string; results: UIActResult[]; readable: string }, signal?: AbortSignal): Promise<{ reply: string; ok: boolean }> {
+  return postJSON('/api/chat/confirm', body, signal);
 }
 
 /** One chat turn with the live UI: answer, operate (acts), or rebuild. */

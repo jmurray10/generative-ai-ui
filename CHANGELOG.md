@@ -13,6 +13,10 @@ All notable changes to this project are documented here. The format follows
   `window.genui.expose({...})` (`call:<name>`), which run inside the iframe. "Set the
   rate to 6.25%" moves the slider; "load the disco preset at 128 and play" calls three
   app actions. Rebuilds happen only when the design or structure should change.
+- Chat replies are grounded in what the acts actually did: after they run, a fast model
+  restates the turn from the real results and the refreshed screen
+  (`POST /api/chat/confirm`), so "pause() → not running" is reported as such instead of
+  "Paused the game".
 - Voice gets an `act_ui` tool, and `read_ui` now returns the controls list as well as
   the screen text, so the agent can read → act → read back.
 - **Jev toolbox router** in the main playground (`POST /api/decide`). TypeSafe Jev
@@ -28,7 +32,7 @@ All notable changes to this project are documented here. The format follows
 - New example set: trading terminal, 3D solar system, drum machine, home
   affordability, incident console, and Snake — each with things to say to it.
 - Tests for the chat runner, control derivation and value coercion, and Jev policy
-  (73 total). `scripts/e2e.mjs` covers routing, the design brief and chat operating
+  (75 total). `scripts/e2e.mjs` covers routing, the design brief and chat operating
   both a registry UI and a sandboxed app; `scripts/voice-agent.mjs` covers
   read → act → read with no rebuild.
 

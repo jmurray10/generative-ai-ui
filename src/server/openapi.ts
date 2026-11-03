@@ -144,6 +144,36 @@ export const openapiSpec = {
         },
       },
     },
+    '/api/chat/confirm': {
+      post: {
+        tags: ['interaction'],
+        summary: 'Restate a chat turn from what its acts actually did',
+        description:
+          'Call after running the acts from /api/chat. A fast model writes the reply from each ' +
+          "act's real result and the refreshed screen text, including failures.",
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['message', 'results'],
+                properties: {
+                  message: { type: 'string' },
+                  results: { type: 'array', items: { type: 'object', properties: { action: { type: 'string' }, ok: { type: 'boolean' }, detail: { type: 'string' } } } },
+                  readable: { type: 'string' },
+                },
+              },
+              examples: { pause: { value: { message: 'Pause the game', results: [{ action: 'call:pause', ok: true, detail: 'not running' }], readable: 'Snake. Score 0. Press Start.' } } },
+            },
+          },
+        },
+        responses: {
+          '200': { description: 'Grounded reply', content: { 'application/json': { schema: { type: 'object', properties: { reply: { type: 'string' }, ok: { type: 'boolean' } } } } } },
+          '400': { description: 'Missing message or results' },
+        },
+      },
+    },
     '/api/chat': {
       post: {
         tags: ['interaction'],

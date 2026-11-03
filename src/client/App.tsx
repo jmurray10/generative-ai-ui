@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { Example, UIDesign, UINode, UISpec } from '../shared/spec';
 import type { ChatTurn, UIActResult } from '../shared/control';
 import type { DecisionEnvelope } from '../shared/toolbox';
-import { chat, decide, fetchExamples, streamSpec } from './api';
+import { chat, confirmChat, decide, fetchExamples, streamSpec } from './api';
 import { GeneratedApp } from './engine/GeneratedApp';
 import { controlHub } from './engine/control';
 import { digestDomControls } from './engine/snapshot';
@@ -297,11 +297,23 @@ export const App: React.FC = () => {
       if (r.spec) {
         applySpec(r.spec, backend.generator, text);
         push({ kind: 'event', text: r.change === 'generate' ? 'Generated a new interface' : 'Rebuilt the interface' });
+        push({ kind: 'assistant', text: r.reply, via: 'chat', ok: r.ok });
       } else if (r.acts.length) {
         const results = await controlHub.run(r.acts);
         results.forEach((res) => push({ kind: 'event', text: describeResult(res), ok: res.ok }));
+        // The reply above was written before the acts ran. Let the screen settle (sandbox
+        // digests post within ~0.7 s), then restate it from what actually happened.
+        await new Promise((res) => setTimeout(res, 900));
+        try {
+          const c = await confirmChat({ message: text, results, readable: screenContext().readable });
+          push({ kind: 'assistant', text: c.reply, via: 'chat', ok: c.ok });
+        } catch {
+          const ok = results.every((x) => x.ok);
+          push({ kind: 'assistant', text: ok ? r.reply : "Some of that didn't apply — see the steps above.", via: 'chat', ok });
+        }
+      } else {
+        push({ kind: 'assistant', text: r.reply, via: 'chat', ok: r.ok });
       }
-      push({ kind: 'assistant', text: r.reply, via: 'chat', ok: r.ok });
     } catch (e) {
       push({ kind: 'error', text: (e as Error).message || 'The model did not answer.' });
     } finally {
