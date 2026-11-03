@@ -104,8 +104,10 @@ export function validateSpec(raw: unknown): ValidationResult {
     : {};
   const filled = fillMissingState(tree, seeded, warnings);
   const theme = isPlainObject(obj.theme) ? (obj.theme as UISpec['theme']) : undefined;
+  const design = normDesign(obj.design);
 
   const spec: UISpec = {
+    ...(design ? { design } : {}),
     ...(typeof obj.title === 'string' ? { title: obj.title } : {}),
     ...(Object.keys(filled).length ? { initialState: filled } : {}),
     ...(theme ? { theme } : {}),
@@ -113,6 +115,21 @@ export function validateSpec(raw: unknown): ValidationResult {
   };
   specNoticeMap.set(spec, warnings);
   return { spec, warnings };
+}
+
+/** Keep only the short string fields of the model's design brief. */
+function normDesign(raw: unknown): UISpec['design'] | undefined {
+  if (!isPlainObject(raw)) return undefined;
+  const r = raw as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 160) : undefined);
+  const palette = Array.isArray(r.palette) ? r.palette.filter((c): c is string => typeof c === 'string' && /^#[0-9a-f]{3,8}$/i.test(c.trim())).slice(0, 8) : [];
+  const design = {
+    ...(str(r.direction) ? { direction: str(r.direction) } : {}),
+    ...(str(r.fonts) ? { fonts: str(r.fonts) } : {}),
+    ...(palette.length ? { palette } : {}),
+    ...(str(r.signature) ? { signature: str(r.signature) } : {}),
+  };
+  return Object.keys(design).length ? design : undefined;
 }
 
 function fillMissingState(tree: UINode[], state: Record<string, JSONValue>, warnings: string[]): Record<string, JSONValue> {

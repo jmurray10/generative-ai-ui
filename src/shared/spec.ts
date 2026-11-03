@@ -52,8 +52,18 @@ export interface UITheme {
   font?: string; // a Google Font family name
 }
 
+/** The design brief the model commits to before building (shown to the user). */
+export interface UIDesign {
+  direction?: string;
+  fonts?: string;
+  palette?: string[];
+  signature?: string;
+}
+
 /** The full generated interface. */
 export interface UISpec {
+  /** The model's design brief, written before the UI. */
+  design?: UIDesign;
   title?: string;
   /** Seed values for the reactive store. */
   initialState?: Record<string, JSONValue>;
@@ -69,6 +79,10 @@ export interface Example {
   title: string;
   prompt: string;
   blurb: string;
+  /** Which part of the toolbox this tends to exercise (a label, not a rule). */
+  lane?: 'registry' | 'react' | 'sandbox';
+  /** Things to say or type to the live UI once it is built. */
+  tryIt?: string[];
 }
 
 /** Response shape of POST /api/generate. */

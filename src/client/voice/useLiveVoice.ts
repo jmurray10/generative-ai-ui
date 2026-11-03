@@ -2,6 +2,8 @@ import { useCallback, useRef, useState } from 'react';
 import { AudioPlayer, MicStreamer } from './audio';
 import { applyTranscript, type TranscriptLine } from './transcript';
 import type { UISpec } from '../../shared/spec';
+import { sanitizeActs, type UIActResult } from '../../shared/control';
+import { controlHub } from '../engine/control';
 
 export type VoiceStatus = 'idle' | 'connecting' | 'live' | 'error';
 export type Transcript = TranscriptLine;
@@ -9,6 +11,10 @@ export type Transcript = TranscriptLine;
 interface Opts {
   getContext: () => { spec: UISpec | null; readable: string };
   onSpec: (s: UISpec) => void;
+  /** Voice ran acts on the UI (for the conversation log). */
+  onActs?: (results: UIActResult[]) => void;
+  /** Voice called a tool (for the conversation log). */
+  onTool?: (name: string, args: Record<string, unknown>) => void;
 }
 
 /**
@@ -72,6 +78,8 @@ export function useLiveVoice(opts: Opts) {
         }
       } else if (m.type === 'audio') {
         player.play(m.audio);
+        // Recording hook (scripts/record.mjs): capture the agent's voice for demo clips.
+        (window as unknown as { __voiceAudioTap?: (b64: string) => void }).__voiceAudioTap?.(m.audio);
       } else if (m.type === 'interrupted') {
         player.clear();
       } else if (m.type === 'transcript') {
@@ -85,9 +93,17 @@ export function useLiveVoice(opts: Opts) {
       } else if (m.type === 'spec') {
         optsRef.current.onSpec(m.spec);
       } else if (m.type === 'readRequest') {
-        // server (read_ui) wants the CURRENT screen — answer with live context
+        // server (read_ui) wants the CURRENT screen and what can be operated on it
         const { readable } = optsRef.current.getContext();
-        if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'readResponse', id: m.id, readable }));
+        if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'readResponse', id: m.id, readable, controls: controlHub.controls() }));
+      } else if (m.type === 'actRequest') {
+        // server (act_ui) wants to operate the UI: run the acts here, report back
+        const acts = sanitizeActs(m.acts);
+        const results = await controlHub.run(acts);
+        optsRef.current.onActs?.(results);
+        if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'actResult', id: m.id, results }));
+      } else if (m.type === 'tool') {
+        optsRef.current.onTool?.(String(m.name ?? ''), m.args ?? {});
       } else if (m.type === 'error') {
         setError(typeof m.message === 'string' ? m.message : 'Voice error');
         setStatus('error');

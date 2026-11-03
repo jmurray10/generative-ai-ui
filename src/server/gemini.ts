@@ -8,7 +8,8 @@ import { geminiKey, geminiModel } from './config.ts';
 import { inspectJSON } from './json.ts';
 import { SYSTEM_PROMPT } from './prompt.ts';
 import { buildAppFromPlan, echoSpec } from './spec-build.ts';
-import type { Generator } from './types.ts';
+import type { GenerateOptions, Generator } from './types.ts';
+import { routeHints } from './route-hints.ts';
 import { validateSpec } from './validate.ts';
 
 export class GeminiGenerator implements Generator {
@@ -39,10 +40,10 @@ export class GeminiGenerator implements Generator {
     return { text, finishReason: finishReason ? String(finishReason) : undefined };
   }
 
-  async generate(prompt: string): Promise<UISpec> {
+  async generate(prompt: string, opts?: GenerateOptions): Promise<UISpec> {
     let text = '';
     try {
-      const result = await this.complete(`Build: ${prompt}`, 16384);
+      const result = await this.complete(`Build: ${prompt}${routeHints(opts)}`, 16384);
       text = result.text;
       if (result.finishReason && result.finishReason !== 'STOP') {
         console.warn(`[gemini] finishReason=${result.finishReason} (output may be truncated or blocked)`);

@@ -23,7 +23,8 @@ import {
   xaiRealtimeURL,
 } from './config.ts';
 import { getGenerator } from './generator.ts';
-import { GROK_VOICE_TOOLS, runVoiceTool, VOICE_SYSTEM } from './voice-tools.ts';
+import { GROK_VOICE_TOOLS, runVoiceTool, VOICE_SYSTEM, type ScreenRead } from './voice-tools.ts';
+import type { UIAct, UIActResult, UIControl } from '../shared/control.ts';
 
 export interface MappedVoiceEvent {
   toClient: Array<Record<string, unknown>>;
@@ -150,17 +151,25 @@ export function attachGrokVoice(server: Server, env: NodeJS.ProcessEnv = process
     let readyTimer: ReturnType<typeof setTimeout> | null = null;
     let toolInflight = 0;
     let toolTimer: ReturnType<typeof setTimeout> | null = null;
-    const pendingReads = new Map<string, (value: string | null) => void>();
+    const pendingReads = new Map<string, (value: ScreenRead | null) => void>();
+    const pendingActs = new Map<string, (value: UIActResult[] | null) => void>();
 
     const sendBrowser = (payload: unknown) => {
       try { browser.send(JSON.stringify(payload)); } catch { /* closed */ }
     };
 
-    const requestRead = (): Promise<string | null> => new Promise((resolve) => {
+    const requestRead = (): Promise<ScreenRead | null> => new Promise((resolve) => {
       const id = Math.random().toString(36).slice(2);
       const timer = setTimeout(() => { pendingReads.delete(id); resolve(null); }, 2500);
       pendingReads.set(id, (value) => { clearTimeout(timer); resolve(value); });
       sendBrowser({ type: 'readRequest', id });
+    });
+
+    const requestAct = (acts: UIAct[]): Promise<UIActResult[] | null> => new Promise((resolve) => {
+      const id = Math.random().toString(36).slice(2);
+      const timer = setTimeout(() => { pendingActs.delete(id); resolve(null); }, 5000);
+      pendingActs.set(id, (value) => { clearTimeout(timer); resolve(value); });
+      sendBrowser({ type: 'actRequest', id, acts });
     });
 
     const continueAfterTools = () => {
@@ -185,7 +194,7 @@ export function attachGrokVoice(server: Server, env: NodeJS.ProcessEnv = process
       }
       sendBrowser({ type: 'tool', name: call.name, args });
       try {
-        const outcome = await runVoiceTool(call.name, args, { generator, spec, readable, requestRead });
+        const outcome = await runVoiceTool(call.name, args, { generator, spec, readable, requestRead, requestAct });
         if (outcome.spec) {
           spec = outcome.spec;
           sendBrowser({ type: 'spec', spec });
@@ -296,7 +305,16 @@ export function attachGrokVoice(server: Server, env: NodeJS.ProcessEnv = process
           const cb = pendingReads.get(id);
           if (cb) {
             pendingReads.delete(id);
-            cb(typeof message.readable === 'string' ? message.readable : null);
+            cb(typeof message.readable === 'string'
+              ? { readable: message.readable, controls: Array.isArray(message.controls) ? (message.controls as UIControl[]).slice(0, 80) : [] }
+              : null);
+          }
+        } else if (message.type === 'actResult') {
+          const id = typeof message.id === 'string' ? message.id : '';
+          const cb = pendingActs.get(id);
+          if (cb) {
+            pendingActs.delete(id);
+            cb(Array.isArray(message.results) ? (message.results as UIActResult[]).slice(0, 12) : null);
           }
         } else if (message.type === 'audio' && live?.readyState === WebSocket.OPEN && typeof message.audio === 'string') {
           live.send(JSON.stringify({ type: 'input_audio_buffer.append', audio: message.audio }));
@@ -322,6 +340,8 @@ export function attachGrokVoice(server: Server, env: NodeJS.ProcessEnv = process
       if (readyTimer) clearTimeout(readyTimer);
       for (const cb of pendingReads.values()) cb(null);
       pendingReads.clear();
+      for (const cb of pendingActs.values()) cb(null);
+      pendingActs.clear();
       try { live?.close(); } catch { /* noop */ }
     };
     browser.on('close', cleanup);

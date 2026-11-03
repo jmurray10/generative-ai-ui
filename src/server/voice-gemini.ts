@@ -12,7 +12,7 @@ import type { Server } from 'node:http';
 import type { UISpec } from '../shared/spec.ts';
 import { geminiKey, geminiLiveModel, geminiLiveVoice } from './config.ts';
 import { getGenerator } from './generator.ts';
-import { runVoiceTool, VOICE_SYSTEM } from './voice-tools.ts';
+import { runVoiceTool, VOICE_SYSTEM, type ScreenRead } from './voice-tools.ts';
 
 const TOOL_DECLS = [
   {
@@ -66,10 +66,10 @@ export function attachGeminiVoice(server: Server, env: NodeJS.ProcessEnv = proce
     let closing = false;
     let reconnects = 0;
     let connecting = false;
-    const pendingReads = new Map<string, (value: string | null) => void>();
+    const pendingReads = new Map<string, (value: ScreenRead | null) => void>();
     const send = (payload: unknown) => { try { ws.send(JSON.stringify(payload)); } catch { /* closed */ } };
 
-    const requestRead = (): Promise<string | null> => new Promise((resolve) => {
+    const requestRead = (): Promise<ScreenRead | null> => new Promise((resolve) => {
       const id = Math.random().toString(36).slice(2);
       const timer = setTimeout(() => { pendingReads.delete(id); resolve(null); }, 2500);
       pendingReads.set(id, (value) => { clearTimeout(timer); resolve(value); });
@@ -165,7 +165,7 @@ export function attachGeminiVoice(server: Server, env: NodeJS.ProcessEnv = proce
     };
 
     ws.on('message', async (buf) => {
-      let message: { type?: string; spec?: UISpec; readable?: string; id?: string; audio?: string; text?: string };
+      let message: { type?: string; spec?: UISpec; readable?: string; id?: string; audio?: string; text?: string; controls?: import('../shared/control.ts').UIControl[] };
       try { message = JSON.parse(buf.toString()); } catch { return; }
       try {
         if (message.type === 'init') {
@@ -179,7 +179,7 @@ export function attachGeminiVoice(server: Server, env: NodeJS.ProcessEnv = proce
           const cb = message.id ? pendingReads.get(message.id) : undefined;
           if (cb && message.id) {
             pendingReads.delete(message.id);
-            cb(typeof message.readable === 'string' ? message.readable : null);
+            cb(typeof message.readable === 'string' ? { readable: message.readable, controls: Array.isArray(message.controls) ? message.controls.slice(0, 80) : [] } : null);
           }
         } else if (message.type === 'audio' && live && message.audio) {
           live.sendRealtimeInput({ audio: { data: message.audio, mimeType: 'audio/pcm;rate=16000' } });

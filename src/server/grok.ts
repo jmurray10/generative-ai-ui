@@ -12,13 +12,26 @@ import type { UISpec } from '../shared/spec.ts';
 import { inspectJSON } from './json.ts';
 import { SYSTEM_PROMPT } from './prompt.ts';
 import { validateSpec } from './validate.ts';
-import type { Generator } from './types.ts';
+import type { GenerateOptions, Generator } from './types.ts';
+import { routeHints } from './route-hints.ts';
 import { grokModel, grokReasoningEffort, xaiBaseURL, xaiKey, type ReasoningEffort } from './config.ts';
 import { buildAppFromPlan, echoSpec, isDegradedSpec } from './spec-build.ts';
 
 const UI_SCHEMA: Record<string, unknown> = {
   type: 'object',
   properties: {
+    // First, so the model commits to a design brief before it writes the UI.
+    design: {
+      type: 'object',
+      properties: {
+        direction: { type: 'string' },
+        fonts: { type: 'string' },
+        palette: { type: 'array', items: { type: 'string' } },
+        signature: { type: 'string' },
+      },
+      required: ['direction', 'fonts', 'palette', 'signature'],
+      additionalProperties: false,
+    },
     title: { type: 'string' },
     initialState: { type: 'object', additionalProperties: true },
     theme: {
@@ -50,7 +63,7 @@ const UI_SCHEMA: Record<string, unknown> = {
       },
     },
   },
-  required: ['title', 'tree'],
+  required: ['design', 'title', 'tree'],
   additionalProperties: false,
 };
 
@@ -135,12 +148,12 @@ export class GrokGenerator implements Generator {
     } catch (err) {
       console.error(`[grok] ${logLabel} failed:`, (err as Error).message);
       if (text) console.error('[grok] raw (first 500):', text.slice(0, 500));
-      return echoSpec(user.replace(/^Build:\s*/, '').slice(0, 500), "Couldn't build that one");
+      return echoSpec(user.replace(/^Build:\s*/, '').replace(/\n\nROUTING[\s\S]*$/, '').slice(0, 500), "Couldn't build that one");
     }
   }
 
-  async generate(prompt: string): Promise<UISpec> {
-    return this.specFrom(`Build: ${prompt}`, 'generate');
+  async generate(prompt: string, opts?: GenerateOptions): Promise<UISpec> {
+    return this.specFrom(`Build: ${prompt}${routeHints(opts)}`, 'generate');
   }
 
   async refine(prompt: string, spec: UISpec): Promise<UISpec> {

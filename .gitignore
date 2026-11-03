@@ -8,6 +8,7 @@ dist/
 .env
 .env.local
 .env.*.local
+.env.backup*
 
 # Generated/captured demo output (the curated docs/ assets ARE committed)
 scripts/screens/

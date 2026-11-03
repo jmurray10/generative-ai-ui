@@ -1,4 +1,6 @@
 import type { Example, GenerateResponse, UINode, UISpec } from '../shared/spec';
+import type { ChatRequest, ChatResponse } from '../shared/control';
+import type { DecisionEnvelope } from '../shared/toolbox';
 
 export async function fetchExamples(): Promise<Example[]> {
   const res = await fetch('/api/examples');
@@ -32,7 +34,7 @@ export interface StreamHandlers {
  * "watch it build itself" reveal.
  */
 export async function streamSpec(
-  body: { prompt: string; spec?: UISpec },
+  body: { prompt: string; spec?: UISpec; lane?: string; components?: string[]; style?: string },
   handlers: StreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -95,4 +97,26 @@ export async function streamSpec(
   }
   // stream closed without a `done` (and not user-aborted) → don't get stuck "building"
   if (!gotDone && !signal?.aborted) handlers.onError?.('The connection closed before the UI finished — please try again.');
+}
+
+async function postJSON<T>(url: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { error?: string }).error || `${url}: ${res.status}`);
+  return data as T;
+}
+
+/** Jev toolbox decision for a prompt: route, ask one question, or hold. */
+export function decide(prompt: string, answered = false, signal?: AbortSignal): Promise<DecisionEnvelope> {
+  return postJSON<DecisionEnvelope>('/api/decide', { prompt, answered }, signal);
+}
+
+/** One chat turn with the live UI: answer, operate (acts), or rebuild. */
+export function chat(req: ChatRequest, signal?: AbortSignal): Promise<ChatResponse> {
+  return postJSON<ChatResponse>('/api/chat', req, signal);
 }
