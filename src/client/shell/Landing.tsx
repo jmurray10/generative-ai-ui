@@ -87,9 +87,13 @@ interface Props {
   onBuild: (prompt: string, example?: Example) => void;
   onSurprise: () => void;
   generatorReady: boolean;
+  /** Name of the voice agent, or null when voice is off. */
+  voiceName: string | null;
+  /** Start a voice session and describe the UI out loud. */
+  onTalk: () => void;
 }
 
-export const Landing: React.FC<Props> = ({ examples, prompt, setPrompt, onBuild, onSurprise, generatorReady }) => {
+export const Landing: React.FC<Props> = ({ examples, prompt, setPrompt, onBuild, onSurprise, generatorReady, voiceName, onTalk }) => {
   const box = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     // Desktop only: on phones autofocus pops the keyboard over the page.
@@ -146,6 +150,20 @@ export const Landing: React.FC<Props> = ({ examples, prompt, setPrompt, onBuild,
               <span className="hidden text-xs text-muted/70 sm:inline">
                 <kbd className="font-mono">Enter</kbd> to build
               </span>
+              {voiceName && generatorReady && (
+                <button
+                  type="button"
+                  onClick={onTalk}
+                  title={`Describe it out loud — ${voiceName} builds it`}
+                  className="flex items-center gap-1.5 rounded-xl border border-edge px-3 py-2.5 text-sm text-muted transition-colors hover:border-accent/60 hover:text-ink"
+                >
+                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                    <rect x="9" y="3" width="6" height="11" rx="3" />
+                    <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+                  </svg>
+                  Say it
+                </button>
+              )}
               <button
                 type="submit"
                 disabled={!prompt.trim()}

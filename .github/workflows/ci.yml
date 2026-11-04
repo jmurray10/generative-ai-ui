@@ -21,3 +21,13 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  docker:
+    name: docker images (api + web)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --target api -t genui-api:ci .
+      - run: docker build --target web -t genui-web:ci .
+      - name: web config renders and nginx accepts it
+        run: docker run --rm -e API_UPSTREAM=127.0.0.1:9 genui-web:ci sh -c '/docker-entrypoint.sh nginx -t'

@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import { AudioPlayer, MicStreamer } from './audio';
 import { applyTranscript, type TranscriptLine } from './transcript';
 import type { UISpec } from '../../shared/spec';
-import { sanitizeActs, type UIActResult } from '../../shared/control';
+import { sanitizeActs, type BuildKind, type BuildOutcome, type UIActResult } from '../../shared/control';
 import { controlHub } from '../engine/control';
 
 export type VoiceStatus = 'idle' | 'connecting' | 'live' | 'error';
@@ -15,6 +15,8 @@ interface Opts {
   onActs?: (results: UIActResult[]) => void;
   /** Voice called a tool (for the conversation log). */
   onTool?: (name: string, args: Record<string, unknown>) => void;
+  /** Voice asked for a build: run it through the normal routed, streamed path and report back. */
+  onBuild?: (kind: BuildKind, text: string) => Promise<BuildOutcome>;
 }
 
 /**
@@ -57,7 +59,7 @@ export function useLiveVoice(opts: Opts) {
 
     ws.onopen = () => {
       const { spec, readable } = optsRef.current.getContext();
-      ws.send(JSON.stringify({ type: 'init', spec, readable }));
+      ws.send(JSON.stringify({ type: 'init', spec, readable, canBuild: Boolean(optsRef.current.onBuild) }));
     };
     ws.onclose = () => { if (wsRef.current === ws) stop(); };
     ws.onerror = () => setStatus('error');
@@ -102,6 +104,15 @@ export function useLiveVoice(opts: Opts) {
         const results = await controlHub.run(acts);
         optsRef.current.onActs?.(results);
         if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'actResult', id: m.id, results }));
+      } else if (m.type === 'buildRequest') {
+        const kind: BuildKind = m.kind === 'refine' ? 'refine' : 'generate';
+        let result: BuildOutcome | null = null;
+        try {
+          result = (await optsRef.current.onBuild?.(kind, String(m.text ?? ''))) ?? null;
+        } catch (e) {
+          result = { ok: false, error: (e as Error).message };
+        }
+        if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'buildResult', id: m.id, result }));
       } else if (m.type === 'tool') {
         optsRef.current.onTool?.(String(m.name ?? ''), m.args ?? {});
       } else if (m.type === 'error') {

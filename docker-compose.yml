@@ -1,12 +1,29 @@
+# Two services: `web` serves the client and proxies the API on one origin;
+# `api` runs Express (generation, chat, Jev routing, /voice). Only web is published.
+#
+#   docker compose up --build            http://localhost:8080
+#   docker compose logs -f api           structured API logs (LOG_LEVEL=debug for more)
+#   docker compose logs -f web           request log from nginx
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
-  genui:
-    build: .
-    image: genui-playground:dev
-    container_name: genui-playground
-    ports:
-      - "8080:8080"
+  api:
+    build:
+      context: .
+      target: api
+    image: genui-playground-api:dev
+    container_name: genui-api
+    expose:
+      - "8080"
     environment:
       - PORT=8080
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_FORMAT=${LOG_FORMAT:-pretty}
       - GENERATOR=${GENERATOR:-grok}
       - XAI_API_KEY=${XAI_API_KEY:-}
       - XAI_BASE_URL=${XAI_BASE_URL:-}
@@ -24,7 +41,14 @@ services:
       - TYPESAFE_API_KEY=${TYPESAFE_API_KEY:-}
       - TYPESAFE_DEFAULT_MODEL=${TYPESAFE_DEFAULT_MODEL:-}
       - JEV_JUDGE_MODEL=${JEV_JUDGE_MODEL:-grok-4.20-0309-non-reasoning}
+      - CHAT_CONFIRM_MODEL=${CHAT_CONFIRM_MODEL:-}
+      - RATE_LIMIT_PER_MIN=${RATE_LIMIT_PER_MIN:-30}
+      - CORS_ORIGIN=${CORS_ORIGIN:-}
+      - MAX_SPEC_CHARS=${MAX_SPEC_CHARS:-200000}
+      - VOICE_MAX_SESSIONS=${VOICE_MAX_SESSIONS:-2}
+      - VOICE_OPENS_PER_MIN=${VOICE_OPENS_PER_MIN:-10}
     restart: unless-stopped
+    logging: *logging
     healthcheck:
       test:
         - CMD
@@ -34,4 +58,26 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
+
+  web:
+    build:
+      context: .
+      target: web
+    image: genui-playground-web:dev
+    container_name: genui-web
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    environment:
+      - API_UPSTREAM=api:8080
+      - PORT=8080
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *logging
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

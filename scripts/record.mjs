@@ -33,6 +33,11 @@ function timeline() {
     t0,
     now: () => Date.now() - t0,
     speed(speed) { marks.push({ at: Date.now() - t0, speed }); },
+    /** Speed up the segment since the last mark so it plays in about `seconds`. */
+    fit(seconds) {
+      const m = marks[marks.length - 1];
+      m.speed = Math.max(1, (Date.now() - t0 - m.at) / 1000 / seconds);
+    },
     segments(endMs) {
       const segs = [];
       for (let i = 0; i < marks.length; i++) {
@@ -51,7 +56,7 @@ async function typeSlow(locator, text) {
 
 async function waitBuilt(page, timeout = 180000) {
   await page.locator('[aria-label="Design brief"]').waitFor({ timeout });
-  await page.getByText('Assembling the interface').waitFor({ state: 'hidden', timeout });
+  await page.getByText('Rendering the interface').waitFor({ state: 'hidden', timeout });
 }
 
 async function chatAndWait(page, text, settleMs = 2500) {
@@ -252,9 +257,56 @@ const CLIPS = {
   }),
 };
 
-const wanted = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(CLIPS);
+/**
+ * Short voice-controlled clip for one gallery example (about 15 s): click the
+ * card, watch the live build timeline (the wait is compressed to ~3 s), then a
+ * spoken command operates the result and the agent answers aloud.
+ * The command is scripts/screens/rec/v-<id>.wav (make it with scripts/speak.ts).
+ */
+async function waitVoiceDone(page, minMs, capMs = 26000) {
+  const t0 = Date.now();
+  let quietSince = Date.now(), lastLen = 0;
+  while (Date.now() - t0 < capMs) {
+    await sleep(400);
+    const len = (await page.locator('[role=log]').innerText()).length;
+    if (len !== lastLen) { lastLen = len; quietSince = Date.now(); }
+    if (Date.now() - t0 > minMs && Date.now() - quietSince > 2800) break;
+  }
+}
+
+const VOICE_EXAMPLES = {
+  trading: { card: /Trading terminal/ },
+  solar: { card: /3D solar system/, scrollToFrame: true },
+  drums: { card: /Drum machine/, scrollToFrame: true },
+  mortgage: { card: /Home affordability/ },
+  incidents: { card: /Incident console/ },
+  snake: { card: /Snake/, scrollToFrame: true },
+};
+
+for (const [id, ex] of Object.entries(VOICE_EXAMPLES)) {
+  CLIPS[`voice-${id}`] = () => record(`voice-${id}`, { micFile: join(WORK, `v-${id}.wav`) }, async (page, tl) => {
+    await page.goto(BASE);
+    await sleep(900);
+    await page.getByRole('button', { name: ex.card }).click();
+    tl.speed(10);
+    await waitBuilt(page);
+    tl.fit(3.5);
+    if (ex.scrollToFrame && await page.locator('main iframe').count()) {
+      await page.locator('main iframe').first().evaluate((el) => window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 70 }));
+    }
+    tl.speed(1);
+    await sleep(900);
+    await page.getByRole('button', { name: /Talk with Grok/ }).click();
+    await waitVoiceDone(page, 7500);
+    await sleep(700);
+    return { posterAt: undefined };
+  });
+}
+
+const wanted = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(CLIPS).filter((k) => !k.startsWith('voice-'));
 for (const k of wanted) {
   if (!CLIPS[k]) { console.error(`unknown clip ${k}`); continue; }
   if (k === 'voice' && !existsSync(join(WORK, 'q-rate.wav'))) { console.error('missing q-rate.wav — run scripts/speak.ts first'); continue; }
+  if (k.startsWith('voice-') && !existsSync(join(WORK, `v-${k.slice(6)}.wav`))) { console.error(`missing v-${k.slice(6)}.wav — run scripts/speak.ts first`); continue; }
   await CLIPS[k]();
 }

@@ -221,7 +221,6 @@ export const Conversation: React.FC<Props> = (p) => {
           <button
             type="button"
             onClick={p.onToggleVoice}
-            disabled={!p.canChat}
             aria-pressed={live}
             aria-label={live ? `Stop talking with ${p.voiceName}` : `Talk with ${p.voiceName}`}
             title={live ? 'Stop voice' : `Talk with ${p.voiceName}`}

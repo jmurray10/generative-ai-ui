@@ -31,7 +31,7 @@ const logText = (page) => page.locator('[role=log]').innerText();
 
 async function waitBuilt(page, timeout = 150000) {
   await page.locator('[aria-label="Design brief"]').waitFor({ timeout });
-  await page.getByText('Assembling the interface').waitFor({ state: 'hidden', timeout });
+  await page.getByText('Rendering the interface').waitFor({ state: 'hidden', timeout });
   await sleep(1500);
 }
 
@@ -69,6 +69,16 @@ const run = async () => {
     await page.getByText('Toolbox decision').waitFor({ timeout: 30000 });
     const decision = await page.locator('aside').innerText();
     check('Jev decision card shows a route', /Registry \+ state|React sandbox/.test(decision), decision.split('\n').slice(0, 4).join(' / '));
+    // Live progress: the timeline shows real steps, and the brief appears before the UI does.
+    await page.locator('[aria-label="Build steps"]').waitFor({ timeout: 15000 });
+    let sawBriefEarly = false;
+    for (let i = 0; i < 240 && !sawBriefEarly; i++) {
+      await sleep(250);
+      const steps = await page.locator('[aria-label="Build steps"]').innerText().catch(() => '');
+      if (/Commit to a design brief\n\S/.test(steps) && !(await page.locator('[aria-label="Design brief"]').count())) sawBriefEarly = true;
+      if (await page.locator('[aria-label="Design brief"]').count()) break;
+    }
+    check('build timeline shows the brief before the UI renders', sawBriefEarly);
     await waitBuilt(page);
     const brief = await page.locator('[aria-label="Design brief"]').innerText();
     check('model committed to a design brief', /Direction/.test(brief), brief.split('\n')[0]);
