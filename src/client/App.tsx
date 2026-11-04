@@ -291,7 +291,10 @@ export const App: React.FC = () => {
   };
 
   const answerJev = (answer: string) => {
-    const p = `${pendingPrompt.current}\nAudience: ${answer}`;
+    // Label the answer by what Jev asked for, so the model reads it in context.
+    const slot = decision.status === 'done' && decision.envelope.decision.kind === 'ask' ? decision.envelope.decision.slot : 'audience';
+    const label = slot === 'data_source' ? 'Data' : slot === 'primary_action' ? 'Main action' : 'Audience';
+    const p = `${pendingPrompt.current}\n${label}: ${answer}`;
     pendingPrompt.current = p;
     push({ kind: 'user', text: answer, via: 'chat' });
     void routeThenBuild(p, true);

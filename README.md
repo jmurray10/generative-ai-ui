@@ -64,7 +64,7 @@ everything after it plays in real time. Click a still to play the clip.
 </tr>
 <tr>
 <td><a href="docs/media/solar-system-chat.mp4"><img src="docs/media/solar-system-chat.png" alt="A three.js solar system driven by chat"></a><br><sub><b>3D, by conversation</b>: a three.js solar system; “fly to Saturn” and “speed time up” call the scene's exposed actions.</sub></td>
-<td><a href="docs/media/jev-asks-first.mp4"><img src="docs/media/jev-asks-first.png" alt="Jev asks one question before building a dashboard"></a><br><sub><b>Jev asks first</b>: “a dashboard” is too vague, so the router asks who it's for, then routes and builds from the answer.</sub></td>
+<td><a href="docs/media/jev-asks-first.mp4"><img src="docs/media/jev-asks-first.png" alt="Jev asks one question before building a dashboard"></a><br><sub><b>Jev asks first</b>: “a dashboard” is too vague, so Jev (about 130 ms) asks what data it should show, then routes and builds from the answer, and chat answers from the screen.</sub></td>
 </tr>
 </table>
 

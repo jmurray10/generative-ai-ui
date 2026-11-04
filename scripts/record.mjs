@@ -253,7 +253,7 @@ const CLIPS = {
     await waitBuilt(page);
     tl.speed(1);
     await sleep(4000);
-    await chatAndWait(page, 'What is the best seller today?', 4000);
+    await chatAndWait(page, 'How are sales tracking against plan today?', 4000);
   }),
 };
 
