@@ -3,10 +3,13 @@
  * and resolves `bind` expressions per node on every render. Unknown component
  * types degrade gracefully instead of crashing the tree.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { JSONValue, UIAction, UINode, UISpec } from '../../shared/spec';
 import { registry } from './components';
 import { GenStateContext, evalExpr, applyAction, type StateMap } from './state';
+import { controlHub } from './control';
+
+const SANDBOXED = new Set(['CustomWidget', 'ReactArtifact']);
 
 /** Color helpers for deterministic, WCAG-aware theming. A model can pick any
  *  palette; these guarantee the rendered text stays legible regardless. */
@@ -61,8 +64,10 @@ const Node: React.FC<{ node: UINode; state: StateMap }> = ({ node, state }) => {
   if (node.bind) {
     for (const [prop, expr] of Object.entries(node.bind)) bound[prop] = evalExpr(expr, state);
   }
+  // Sandboxed hosts need their node id to register the actions they expose.
+  const extra = SANDBOXED.has(node.type) ? { nodeId: node.id } : null;
   return (
-    <Comp {...(node.props as object)} {...bound}>
+    <Comp {...(node.props as object)} {...bound} {...extra}>
       {children}
     </Comp>
   );
@@ -82,6 +87,20 @@ export const GeneratedApp: React.FC<{ spec: UISpec }> = ({ spec }) => {
     }),
     [state, initialState],
   );
+
+  // Expose this UI to chat and voice: they read the live state and operate it
+  // through the same setVar/dispatch the components use.
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  useEffect(() => {
+    controlHub.attachState({
+      spec,
+      getState: () => stateRef.current,
+      setVar: api.setVar,
+      dispatch: api.dispatch,
+    });
+  }, [spec, api.setVar, api.dispatch]);
+  useEffect(() => () => controlHub.attachState(null), []);
 
   // Build scoped --gp-* overrides from the optional theme (no per-component refactor:
   // the registry's Tailwind tokens already read these variables).
@@ -124,18 +143,6 @@ export const GeneratedApp: React.FC<{ spec: UISpec }> = ({ spec }) => {
     link.dataset.gpFont = font;
     document.head.appendChild(link);
   }, [spec.theme?.font]);
-
-  // Tint the whole page to the theme bg so a themed UI doesn't float on the app's
-  // purple gradient. Restored on unmount (GeneratedApp is keyed per generation).
-  useEffect(() => {
-    const bg = spec.theme?.bg;
-    if (!bg) return;
-    const { style } = document.body;
-    const prev = { color: style.backgroundColor, image: style.backgroundImage };
-    style.backgroundColor = bg;
-    style.backgroundImage = 'none';
-    return () => { style.backgroundColor = prev.color; style.backgroundImage = prev.image; };
-  }, [spec.theme?.bg]);
 
   return (
     <GenStateContext.Provider value={api}>

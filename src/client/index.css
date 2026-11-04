@@ -1,35 +1,36 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
-  /* default design tokens (RGB channels) — a generated UI overrides --gp-* on its wrapper */
+  /* Default design tokens (RGB channels). A generated UI overrides --gp-* on its
+     own wrapper, so the shell and an unthemed registry UI share these. */
   :root {
-    --gp-canvas: 11 11 18;
-    --gp-panel: 21 21 31;
-    --gp-edge: 38 38 53;
-    --gp-ink: 231 231 240;
-    --gp-muted: 184 184 207;
-    --gp-accent: 124 92 255;
-    --gp-accent-soft: 157 134 255;
-    --gp-accent-deep: 91 63 214;
-    --gp-on-accent: 255 255 255;
-    --gp-focus: 157 134 255;
+    --gp-canvas: 12 13 16; /* graphite, tinted cool */
+    --gp-panel: 20 22 27;
+    --gp-edge: 40 43 51;
+    --gp-ink: 236 234 229; /* warm off-white */
+    --gp-muted: 156 160 170;
+    --gp-accent: 255 106 61; /* vermilion */
+    --gp-accent-soft: 255 154 122;
+    --gp-accent-deep: 214 74 33;
+    --gp-on-accent: 20 12 8;
+    --gp-focus: 255 154 122;
   }
 
   html,
   body,
   #root {
-    height: 100%;
+    min-height: 100%;
   }
 
   body {
     @apply bg-canvas text-ink font-sans antialiased;
-    background-image:
-      radial-gradient(60rem 60rem at 80% -10%, rgba(124, 92, 255, 0.18), transparent 60%),
-      radial-gradient(50rem 50rem at -10% 10%, rgba(91, 63, 214, 0.12), transparent 55%);
-    background-attachment: fixed;
+    font-feature-settings: 'ss01', 'cv11';
+  }
+
+  ::selection {
+    background: rgb(var(--gp-accent) / 0.35);
   }
 
   :focus-visible {
@@ -39,26 +40,64 @@
   }
 }
 
+@layer components {
+  /* One restrained glow behind the hero, plus film grain — no gradients elsewhere. */
+  .shell-glow {
+    background:
+      radial-gradient(42rem 22rem at 50% -6rem, rgb(var(--gp-accent) / 0.16), transparent 70%),
+      radial-gradient(30rem 18rem at 85% 0%, rgb(120 140 255 / 0.07), transparent 70%);
+  }
+  .grain::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 50;
+    opacity: 0.05;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .hairline {
+    @apply border-edge/80;
+  }
+}
+
 @layer utilities {
   @keyframes rise {
     from {
       opacity: 0;
-      transform: translateY(10px) scale(0.98);
+      transform: translateY(10px) scale(0.985);
     }
     to {
       opacity: 1;
       transform: translateY(0) scale(1);
     }
   }
-
   .animate-rise {
-    animation: rise 0.4s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+    animation: rise 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  @keyframes flash {
+    0% {
+      box-shadow: 0 0 0 0 rgb(var(--gp-accent) / 0.55);
+    }
+    100% {
+      box-shadow: 0 0 0 10px rgb(var(--gp-accent) / 0);
+    }
+  }
+  .animate-flash {
+    animation: flash 0.9s ease-out;
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
   }
 
   @media (prefers-reduced-motion: reduce) {
     .animate-rise,
+    .animate-flash,
     .animate-ping,
-    .animate-pulse {
+    .animate-pulse,
+    .animate-spin {
       animation: none !important;
     }
   }

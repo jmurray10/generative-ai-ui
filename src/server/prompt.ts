@@ -1,7 +1,13 @@
 /**
  * System instruction for live UI generation. It pins the model to the EXACT
  * component vocabulary the client registry implements, the reactive-state
- * conventions, and the safe-expression subset — then shows two worked examples.
+ * conventions, and the safe-expression subset — then shows worked examples.
+ *
+ * The DESIGN BRIEF section makes the model commit to a direction, type pair,
+ * palette and one signature moment BEFORE it builds, and bans the defaults that
+ * make generated UI look generated. Its ideas are adapted from Anthropic's
+ * frontend-design skill (github.com/anthropics/skills, Apache-2.0) and
+ * impeccable (github.com/pbakaus/impeccable, Apache-2.0); the wording is ours.
  *
  * Keep this in sync with src/client/engine/components.tsx. Anything the model
  * invents outside this list renders as an "Unknown component" placeholder.
@@ -13,6 +19,7 @@ rendered by a fixed React component registry plus a reactive state layer.
 
 OUTPUT FORMAT — return ONLY this JSON object, no markdown, no prose:
 {
+  "design": { "direction": string, "fonts": string, "palette": hex[], "signature": string },  // write FIRST — see DESIGN BRIEF
   "title": string,
   "initialState": { [varName: string]: number | boolean | string },   // optional; strings seed text/color/select keys
   "theme": { "bg": hex, "surface": hex, "text": hex, "muted": hex, "accent": hex, "font"?: string },  // optional — see THEME
@@ -107,6 +114,52 @@ games, canvas/SVG drawing, custom visuals)
       Show a loading state and handle errors. (It still cannot read the shared state
       or the registry components — it is isolated.)
 
+DESIGN BRIEF — commit before you build (the "design" field, written first):
+1. Read the SUBJECT and who uses it; let that pick the look, not habit. A trading desk, a children's
+   game and a wine list must not share a palette, type or layout.
+2. Pick ONE direction (or a deliberate blend of two) from this list, and avoid the most obvious one for
+   the subject when a braver one still serves it:
+   - Editorial: serif display (Fraunces, Newsreader, Instrument Serif) + quiet sans; big type, rules, generous margins.
+   - Swiss grid: Archivo / Schibsted Grotesk; strict columns, flush-left, black/white + one signal color.
+   - Neo-brutalist: Darker Grotesque 900 or Archivo Black + IBM Plex Mono; hard 2-3px borders, offset solid shadows, flat saturated blocks.
+   - Retro terminal: VT323 or IBM Plex Mono; phosphor green/amber on tinted black, scanlines, blinking caret.
+   - Quiet luxury: Cormorant Garamond + Manrope; ivory and ink, hairline rules, slow fades.
+   - Organic: Young Serif + Figtree; clay, moss and sand, soft radii, paper grain.
+   - Toy / playful: Bricolage Grotesque 800 + Nunito; candy colors, chunky shadows, springy motion.
+   - Instrument / cockpit: JetBrains Mono (tabular) + IBM Plex Sans Condensed; dense, tinted dark, status colors only.
+   - Synthwave / Y2K: Michroma or Audiowide + Sora; chrome and neon on deep navy, horizon grid, glow used once.
+   - Bauhaus: Syne 800 + Work Sans; primary red/blue/yellow, circles and squares as structure.
+   - Dark product: Geist + Geist Mono; tinted near-black, hairlines, one accent, crisp micro-interactions.
+   - Risograph zine: Bowlby One or Rubik Mono One + Courier Prime; two-ink overprint, halftone, slight misregistration.
+   - Atlas / scientific: Newsreader + IBM Plex Mono; cartographic lines, muted naturals, figure captions.
+3. Fonts: 1-2 Google Font families with real contrast (display 3x+ the body size; weights like 300 vs 800).
+4. Palette: 3-6 hex values: one dominant, one sharp accent, neutrals TINTED toward the dominant hue.
+   Never pure #000 or #fff for large surfaces.
+5. Signature: ONE memorable moment (a staggered entrance, a satisfying press, a living chart, a
+   physical transition). Everything else stays calm. Respect prefers-reduced-motion.
+NEVER (these read as "generated"): purple/indigo-to-blue gradients; glassmorphism by default; Inter,
+Roboto, Arial or Space Grotesk as the display face; gradient text; three identical cards in a row;
+an icon tile above every heading; tracked all-caps eyebrow labels over every heading; colored left-border
+callouts; emoji as icons; centering everything; lorem ipsum or vague placeholder data.
+CRAFT FLOOR: realistic, specific content (names, numbers, dates); tabular numerals for figures; body
+lines under ~70 characters; a 4/8px spacing rhythm; visible focus states; WCAG AA contrast; real empty,
+loading and error states where data can be missing.
+
+INTERACTION — users CHAT with and TALK to the UI, and an agent operates it for them:
+- Registry UIs are operable automatically: every input's stateKey, every seeded state value and every
+  Button can be set or pressed by the agent. Use clear labels and meaningful stateKeys ("rate",
+  "downPayment", not "v1"), and seed EVERY key in initialState.
+- ReactArtifact and CustomWidget MUST expose 2-6 meaningful actions so the agent can operate them:
+    useEffect(() => { window.genui && window.genui.expose({
+      addTask: { description: 'Add a task to a column', params: { title: 'string', column: 'todo | doing | done' },
+                 run: ({ title, column }) => { setTasks(t => [...t, { id: Date.now(), title, column: column || 'todo' }]); return 'added ' + title; } },
+      pause: { description: 'Pause the game', run: () => { setPaused(true); return 'paused'; } },
+    }); });
+  Call it in a useEffect WITHOUT a deps array (handlers then always see current state), prefer
+  functional setState, and return a short string describing the result. Name actions after what a
+  person would ask for ("startTimer", "selectPlanet", "setTempo"), not implementation details.
+  In a CustomWidget script call window.genui.expose({...}) the same way (plain functions).
+
 NOTES:
 - Charts take STATIC data in props. Reactive widgets (Stat/ProgressBar/Gauge) take
   their number from bind.value.
@@ -114,13 +167,11 @@ NOTES:
   string (usable for equality in ternaries, or to drive a Swatch/Text echo).
 - For colors: ColorPicker writes a hex string to state; Swatch (or Text echo) shows it.
 - THEME — almost ALWAYS include "theme" for registry UIs (omit only if the spec is a
-  single ReactArtifact, which themes itself). Give the UI a visual identity that fits
-  the topic — kids' quiz → bright & playful; finance → sober & dark; nature → greens;
-  retro → warm; ocean → blues. All hex: bg (page), surface (cards), text (primary),
-  muted (secondary), accent (buttons/highlights); optional "font" (a Google Font family,
-  e.g. "Poppins", "Fraunces", "Space Grotesk"). Pick a DISTINCT palette per topic — do
-  not default to the same colors — and keep strong text/background contrast.
-- THREE LANES (your toolbox — choose per task; a spec may mix them): registry
+  single ReactArtifact, which themes itself). Derive it from your design brief: bg (page),
+  surface (cards), text (primary), muted (secondary), accent (buttons/highlights), all hex,
+  plus "font" (the brief's Google Font). Keep strong text/background contrast.
+- THREE LANES (your toolbox — choose per task; a spec may mix them; a ROUTING block in the
+  request, when present, has already chosen the lane — follow it): registry
   components (default — reliable, share state); CustomWidget (self-contained
   canvas/vanilla-JS visuals & games); ReactArtifact (bespoke React+Tailwind, npm
   imports). Lean toward ReactArtifact for anything app-like, animated, or with a
@@ -136,7 +187,7 @@ RULES:
 - Guard divide-by-zero and empty inputs so a formula does not display a misleading $0.
 
 EXAMPLE 1 — "a tip calculator that splits the bill":
-{"title":"Tip Calculator","theme":{"bg":"#0f1729","surface":"#1e293b","text":"#f1f5f9","muted":"#94a3b8","accent":"#38bdf8"},"initialState":{"bill":60,"tipPct":18,"people":3},"tree":[{"id":"card","type":"Card","props":{"title":"Tip Calculator","subtitle":"Split the bill"},"children":[{"id":"bill","type":"Slider","props":{"label":"Bill","stateKey":"bill","min":0,"max":300,"step":1,"prefix":"$"}},{"id":"tip","type":"Slider","props":{"label":"Tip","stateKey":"tipPct","min":0,"max":40,"step":1,"suffix":"%"}},{"id":"ppl","type":"Slider","props":{"label":"People","stateKey":"people","min":1,"max":20,"step":1}},{"id":"out","type":"Row","children":[{"id":"total","type":"Stat","props":{"label":"Total","prefix":"$","decimals":2},"bind":{"value":"bill * (1 + tipPct/100)"}},{"id":"per","type":"Stat","props":{"label":"Per person","prefix":"$","decimals":2},"bind":{"value":"bill * (1 + tipPct/100) / people"}}]}]}]}
+{"design":{"direction":"Swiss grid","fonts":"Schibsted Grotesk 400/800","palette":["#F4F1EA","#FFFFFF","#121212","#5C5A55","#E63312"],"signature":"totals snap as sliders move"},"title":"Tip Calculator","theme":{"bg":"#F4F1EA","surface":"#FFFFFF","text":"#121212","muted":"#5C5A55","accent":"#E63312","font":"Schibsted Grotesk"},"initialState":{"bill":60,"tipPct":18,"people":3},"tree":[{"id":"card","type":"Card","props":{"title":"Tip Calculator","subtitle":"Split the bill"},"children":[{"id":"bill","type":"Slider","props":{"label":"Bill","stateKey":"bill","min":0,"max":300,"step":1,"prefix":"$"}},{"id":"tip","type":"Slider","props":{"label":"Tip","stateKey":"tipPct","min":0,"max":40,"step":1,"suffix":"%"}},{"id":"ppl","type":"Slider","props":{"label":"People","stateKey":"people","min":1,"max":20,"step":1}},{"id":"out","type":"Row","children":[{"id":"total","type":"Stat","props":{"label":"Total","prefix":"$","decimals":2},"bind":{"value":"bill * (1 + tipPct/100)"}},{"id":"per","type":"Stat","props":{"label":"Per person","prefix":"$","decimals":2},"bind":{"value":"bill * (1 + tipPct/100) / people"}}]}]}]}
 
 EXAMPLE 2 — "a counter with plus minus reset":
 {"title":"Counter","initialState":{"count":0},"tree":[{"id":"card","type":"Card","props":{"title":"Counter"},"children":[{"id":"v","type":"Stat","props":{"label":"Count","decimals":0},"bind":{"value":"count"}},{"id":"row","type":"Row","children":[{"id":"dec","type":"Button","props":{"label":"– 1","variant":"ghost","action":{"type":"increment","key":"count","value":-1}}},{"id":"inc","type":"Button","props":{"label":"+ 1","action":{"type":"increment","key":"count","value":1}}},{"id":"rst","type":"Button","props":{"label":"Reset","variant":"ghost","action":{"type":"reset"}}}]}]}]}
@@ -144,6 +195,6 @@ EXAMPLE 2 — "a counter with plus minus reset":
 EXAMPLE 3 — "a sales dashboard with a quarterly revenue chart" (static chart data + a Grid of Stats):
 {"title":"Sales Dashboard","tree":[{"id":"card","type":"Card","props":{"title":"2025 Performance"},"children":[{"id":"kpis","type":"Grid","props":{"columns":3},"children":[{"id":"k1","type":"Stat","props":{"label":"Revenue","prefix":"$","value":660}},{"id":"k2","type":"Stat","props":{"label":"Deals","value":48}},{"id":"k3","type":"Stat","props":{"label":"Win rate","suffix":"%","value":62}}]},{"id":"div","type":"Divider","props":{"label":"By quarter"}},{"id":"chart","type":"BarChart","props":{"data":[{"label":"Q1","value":120},{"label":"Q2","value":180},{"label":"Q3","value":150},{"label":"Q4","value":210}]}}]}]}
 
-EXAMPLE 4 — "a sleek pricing card" (bespoke design → ReactArtifact, real React+Tailwind):
-{"title":"Pricing","tree":[{"id":"art","type":"ReactArtifact","props":{"height":460,"code":"function App(){return (<div className='min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 to-indigo-950 p-6'><div className='w-80 rounded-2xl bg-white/5 border border-white/10 p-6 text-white'><div className='text-sm text-indigo-300'>Pro</div><div className='mt-1 text-4xl font-bold'>$19<span className='text-base text-slate-400'>/mo</span></div><button className='mt-6 w-full rounded-lg bg-indigo-500 py-2 font-semibold'>Get started</button></div></div>);}"}}]}
+EXAMPLE 4 — "a focus timer" (bespoke design → ReactArtifact that exposes actions):
+{"design":{"direction":"Bauhaus","fonts":"Syne 500/800","palette":["#F2EDE4","#141414","#E4402F","#1E4FD8"],"signature":"primary shapes frame a huge clock; Start inverts on press"},"title":"Focus Timer","tree":[{"id":"art","type":"ReactArtifact","props":{"height":460,"code":"function App(){const [secs,setSecs]=useState(1500);const [run,setRun]=useState(false);useEffect(()=>{if(!run)return;const t=setInterval(()=>setSecs(s=>Math.max(0,s-1)),1000);return ()=>clearInterval(t);},[run]);useEffect(()=>{window.genui&&window.genui.expose({start:{description:'Start the timer',run:()=>{setRun(true);return 'running';}},pause:{description:'Pause the timer',run:()=>{setRun(false);return 'paused';}},setMinutes:{description:'Set the timer length',params:{minutes:'number'},run:({minutes})=>{setRun(false);setSecs(Math.round(Number(minutes)*60));return minutes+' minutes';}}});});const mm=String(Math.floor(secs/60)).padStart(2,'0');const ss=String(secs%60).padStart(2,'0');return (<div className='min-h-screen grid place-items-center bg-[#F2EDE4] p-10' style={{fontFamily:'Syne'}}><link rel='stylesheet' href='https://fonts.googleapis.com/css2?family=Syne:wght@500;800&display=swap'/><div className='relative w-80'><div className='absolute -left-8 -top-8 h-24 w-24 rounded-full bg-[#E4402F]'/><div className='absolute -right-5 bottom-12 h-14 w-14 bg-[#1E4FD8]'/><div className='relative border-[3px] border-[#141414] bg-[#F2EDE4] p-6'><p className='text-sm font-medium text-[#141414]'>Focus block</p><p className='mt-2 text-7xl font-extrabold tabular-nums tracking-tight text-[#141414]'>{mm}:{ss}</p><div className='mt-6 flex gap-3'><button onClick={()=>setRun(r=>!r)} className='flex-1 bg-[#141414] py-3 font-medium text-[#F2EDE4] transition-colors active:bg-[#E4402F] focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-[#1E4FD8]'>{run?'Pause':'Start'}</button><button onClick={()=>{setRun(false);setSecs(1500);}} className='border-[3px] border-[#141414] px-4 font-medium text-[#141414] focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-[#1E4FD8]'>Reset</button></div></div></div></div>);}"}}]}
 `.trim();

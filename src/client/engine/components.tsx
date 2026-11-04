@@ -10,6 +10,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { formatReadout, gaugePresentation } from './format';
 import { isStepAligned, parseTypedNumber, sliderBounds } from './slider';
 import { useGenState } from './state';
+import { controlHub, parseFrameActions } from './control';
 import type { UIAction } from '../../shared/spec';
 
 type Props = Record<string, any> & { children?: React.ReactNode };
@@ -560,21 +561,37 @@ function neutralizeClosers(source: string): string {
 /** Self-contained document for Lane B. CSP blocks network, matching the prompt. */
 export function customWidgetSrcDoc(html: string, css: string, script: string): string {
   return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${WIDGET_CSP}"><style>${neutralizeClosers(css)}</style></head><body>${html}` +
+    `<scr` + `ipt>${GENUI_BRIDGE}</scr` + `ipt>` +
     `<scr` + `ipt>${neutralizeClosers(script)}</scr` + `ipt>` +
     `<scr` + `ipt>${TEXT_POSTER}</scr` + `ipt></body></html>`;
 }
 
-const CustomWidget: React.FC<Props> = ({ html = '', css = '', script = '', height = 240 }) => {
-  const ref = useRef<HTMLIFrameElement>(null);
+/**
+ * Host side of the genui bridge for one sandboxed iframe: keeps its text digest
+ * for read_ui, registers the actions it exposes, and settles action results.
+ */
+function useFrameBridge(ref: React.RefObject<HTMLIFrameElement>, nodeId: string, onHeight?: (h: number) => void) {
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
-      if (ref.current && e.source === ref.current.contentWindow && e.data && typeof e.data.__artifactText === 'string') {
-        ref.current.dataset.artifactText = e.data.__artifactText;
-      }
+      const frame = ref.current;
+      if (!frame || e.source !== frame.contentWindow || !e.data || typeof e.data !== 'object') return;
+      if (onHeight && typeof e.data.__artifactHeight === 'number') onHeight(e.data.__artifactHeight);
+      if (typeof e.data.__artifactText === 'string') frame.dataset.artifactText = e.data.__artifactText;
+      const actions = parseFrameActions(e.data);
+      if (actions && frame.contentWindow) controlHub.registerFrame(nodeId, frame.contentWindow, actions);
+      if (e.data.__genuiResult && typeof e.data.__genuiResult === 'object') controlHub.resolve(e.data.__genuiResult);
     };
     window.addEventListener('message', onMsg);
-    return () => window.removeEventListener('message', onMsg);
-  }, []);
+    return () => {
+      window.removeEventListener('message', onMsg);
+      controlHub.unregisterFrame(nodeId);
+    };
+  }, [ref, nodeId, onHeight]);
+}
+
+const CustomWidget: React.FC<Props> = ({ html = '', css = '', script = '', height = 240, nodeId = 'widget' }) => {
+  const ref = useRef<HTMLIFrameElement>(null);
+  useFrameBridge(ref, String(nodeId));
   const srcDoc = customWidgetSrcDoc(String(html), String(css), String(script));
   return (
     <iframe
@@ -598,7 +615,18 @@ const CustomWidget: React.FC<Props> = ({ html = '', css = '', script = '', heigh
 // Posts a text digest of the iframe's content to the parent, so the voice agent's
 // read_ui can "see" inside the otherwise cross-origin sandbox.
 const TEXT_POSTER =
-  'var __lt=0;function __digest(){var parts=[];var nodes=document.querySelectorAll("input,textarea,select");for(var i=0;i<nodes.length;i++){var el=nodes[i];var t=(el.type||"").toLowerCase();if(t==="hidden"||t==="button"||t==="submit"||t==="range"||t==="file")continue;var name=el.getAttribute("aria-label")||el.getAttribute("name")||el.getAttribute("placeholder")||el.id||("field "+(i+1));var v="";if(t==="checkbox"){v=el.checked?"on":"off";}else if(t==="radio"){if(!el.checked)continue;v=el.value||"on";}else{v=el.value||"";}if(v!=="")parts.push(name+": "+v);}var text=((document.body&&document.body.innerText)||"").replace(/\\s+/g," ").trim();if(parts.length)text=(text?text+" · ":"")+parts.join(" · ");return text.slice(0,3000);}function __pt(){try{var n=Date.now();if(n-__lt<700)return;__lt=n;parent.postMessage({__artifactText:__digest()},"*");}catch(e){}}setTimeout(__pt,800);setTimeout(__pt,2500);try{new MutationObserver(__pt).observe(document.documentElement,{subtree:true,childList:true,characterData:true});document.addEventListener("input",__pt,true);document.addEventListener("change",__pt,true);}catch(e){}';
+  'var __lt=0;function __digest(){var parts=[];var nodes=document.querySelectorAll("input,textarea,select");for(var i=0;i<nodes.length;i++){var el=nodes[i];var t=(el.type||"").toLowerCase();if(t==="hidden"||t==="button"||t==="submit"||t==="range"||t==="file")continue;var name=el.getAttribute("aria-label")||el.getAttribute("name")||el.getAttribute("placeholder")||el.id||("field "+(i+1));var v="";if(t==="checkbox"){v=el.checked?"on":"off";}else if(t==="radio"){if(!el.checked)continue;v=el.value||"on";}else{v=el.value||"";}if(v!=="")parts.push(name+": "+v);}var text=((document.body&&document.body.innerText)||"").replace(/\\s+/g," ").trim();if(parts.length)text=(text?text+" · ":"")+parts.join(" · ");return text.slice(0,3000);}var __tt=0;function __pt(){try{var n=Date.now();if(n-__lt<700){if(!__tt)__tt=setTimeout(function(){__tt=0;__pt();},700-(n-__lt));return;}__lt=n;parent.postMessage({__artifactText:__digest()},"*");}catch(e){}}setTimeout(__pt,800);setTimeout(__pt,2500);try{new MutationObserver(__pt).observe(document.documentElement,{subtree:true,childList:true,characterData:true});document.addEventListener("input",__pt,true);document.addEventListener("change",__pt,true);}catch(e){}';
+
+// The genui bridge: an artifact calls genui.expose({ name: { description, params, run } })
+// (or { name: fn }) so chat and voice can OPERATE it. Calls arrive from the host
+// page by postMessage and run here, inside the sandbox; results go back the same way.
+const GENUI_BRIDGE =
+  '(function(){var acts={};var last="";function cat(){var l=[];for(var k in acts){var a=acts[k];l.push({name:k,description:a.description?String(a.description):undefined,params:a.params||undefined});}return l;}' +
+  'function post(){try{var c=cat();var s=JSON.stringify(c);if(s===last)return;last=s;parent.postMessage({__genuiActions:c},"*");}catch(e){}}' +
+  'window.genui={expose:function(defs){if(!defs||typeof defs!=="object")return;for(var k in defs){var d=defs[k];if(typeof d==="function")acts[k]={run:d};else if(d&&typeof d.run==="function")acts[k]=d;}post();}};' +
+  'window.addEventListener("message",function(e){var d=e.data;if(!d||!d.__genuiCall||e.source!==window.parent)return;var c=d.__genuiCall;var a=acts[c.name];' +
+  'function done(ok,v){try{parent.postMessage({__genuiResult:{id:c.id,ok:ok,detail:v==null?undefined:String(v).slice(0,300)}},"*");}catch(x){}}' +
+  'if(!a){done(false,"unknown action "+c.name);return;}try{Promise.resolve(a.run(c.args||{})).then(function(r){done(true,r);},function(err){done(false,(err&&err.message)||err);});}catch(err){done(false,(err&&err.message)||err);}});})();';
 
 // A sandbox without allow-same-origin throws on localStorage/sessionStorage and
 // has no nice way to surface errors. Install in-memory storage shims + a small
@@ -609,6 +637,9 @@ const ARTIFACT_SHIM =
   'window.addEventListener("unhandledrejection",function(e){window.__err((e&&e.reason&&e.reason.message)||String(e&&e.reason));});' +
   'try{var _mk=function(){var m={};var s={getItem:function(k){return Object.prototype.hasOwnProperty.call(m,k)?m[k]:null;},setItem:function(k,v){m[k]=String(v);},removeItem:function(k){delete m[k];},clear:function(){m={};},key:function(i){return Object.keys(m)[i]||null;}};Object.defineProperty(s,"length",{get:function(){return Object.keys(m).length;}});return s;};' +
   'Object.defineProperty(window,"localStorage",{configurable:true,value:_mk()});Object.defineProperty(window,"sessionStorage",{configurable:true,value:_mk()});}catch(e){}' +
+  GENUI_BRIDGE +
+  'var __lh=0;function __ph(){try{var h=Math.max(document.documentElement.scrollHeight,document.body?document.body.scrollHeight:0);var r=document.getElementById("root");if(r&&r.firstElementChild)h=Math.max(h,r.firstElementChild.getBoundingClientRect().height);if(Math.abs(h-__lh)<2)return;__lh=h;parent.postMessage({__artifactHeight:h},"*");}catch(e){}}' +
+  'try{new ResizeObserver(__ph).observe(document.documentElement);}catch(e){}var __pi=setInterval(__ph,400);setTimeout(function(){clearInterval(__pi);},8000);window.addEventListener("load",__ph);' +
   TEXT_POSTER;
 
 const escScript = (code: string): string => JSON.stringify(code).replace(/<\//g, '<\\/');
@@ -687,18 +718,14 @@ export function buildArtifactDoc(code: string): string {
   return usesImports ? buildModuleDoc(code) : buildClassicDoc(code);
 }
 
-const ReactArtifact: React.FC<Props> = ({ code = '', height = 480 }) => {
+const ReactArtifact: React.FC<Props> = ({ code = '', height = 480, nodeId = 'artifact' }) => {
   const ref = useRef<HTMLIFrameElement>(null);
   const [h, setH] = useState<number>(Number(height) || 480);
-  useEffect(() => {
-    const onMsg = (e: MessageEvent) => {
-      if (!ref.current || e.source !== ref.current.contentWindow || !e.data) return;
-      if (typeof e.data.__artifactHeight === 'number') setH(Math.max(80, Math.min(2400, Math.round(e.data.__artifactHeight))));
-      if (typeof e.data.__artifactText === 'string') ref.current.dataset.artifactText = e.data.__artifactText;
-    };
-    window.addEventListener('message', onMsg);
-    return () => window.removeEventListener('message', onMsg);
-  }, []);
+  // Grow to fit taller content, but never below the requested height: full-screen
+  // scenes (fixed/absolute canvases) report almost no document height.
+  const floor = Math.max(120, Number(height) || 480);
+  const onHeight = React.useCallback((v: number) => setH(Math.max(floor, Math.min(2400, Math.round(v)))), [floor]);
+  useFrameBridge(ref, String(nodeId), onHeight);
   return (
     <iframe
       ref={ref}

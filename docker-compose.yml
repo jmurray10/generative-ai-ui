@@ -19,6 +19,11 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.5-flash}
+      # Jev toolbox router: TypeSafe Jev when TYPESAFE_API_KEY is set, else a Grok judge.
+      - TOOLBOX_DECIDER=${TOOLBOX_DECIDER:-auto}
+      - TYPESAFE_API_KEY=${TYPESAFE_API_KEY:-}
+      - TYPESAFE_DEFAULT_MODEL=${TYPESAFE_DEFAULT_MODEL:-}
+      - JEV_JUDGE_MODEL=${JEV_JUDGE_MODEL:-grok-4.20-0309-non-reasoning}
     restart: unless-stopped
     healthcheck:
       test:

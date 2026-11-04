@@ -6,7 +6,53 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Talk to the UI and it operates it.** Chat (`POST /api/chat`) and voice share one
+  control surface: every registry input, seeded value and button is operable
+  (`set:<key>`, `press:<id>`), and sandboxed apps expose named actions with
+  `window.genui.expose({...})` (`call:<name>`), which run inside the iframe. "Set the
+  rate to 6.25%" moves the slider; "load the disco preset at 128 and play" calls three
+  app actions. Rebuilds happen only when the design or structure should change.
+- Chat replies are grounded in what the acts actually did: after they run, a fast model
+  restates the turn from the real results and the refreshed screen
+  (`POST /api/chat/confirm`), so "pause() → not running" is reported as such instead of
+  "Paused the game".
+- Voice gets an `act_ui` tool, and `read_ui` now returns the controls list as well as
+  the screen text, so the agent can read → act → read back.
+- **Jev toolbox router** in the main playground (`POST /api/decide`). TypeSafe Jev
+  answers typed questions about each prompt; code-owned policy routes it (lane, needed
+  pieces, style family), asks one question, or holds it (prompt injection,
+  contradiction). Without `TYPESAFE_API_KEY`, a Grok judge answers the same questions
+  (`JEV_JUDGE_MODEL`, ~2 s on `grok-4.20-0309-non-reasoning`). Ported from the
+  `design-showcases` branch without its showcase pages.
+- **Design brief.** The model commits to a direction (13 named ones), a font pair, a
+  palette and one signature moment before it builds, against a ban list of
+  "generated-looking" defaults. Adapted from Anthropic's frontend-design skill and
+  pbakaus/impeccable (both Apache-2.0). The brief is shown above every UI.
+- New example set: trading terminal, 3D solar system, drum machine, home
+  affordability, incident console, and Snake — each with things to say to it.
+- Tests for the chat runner, control derivation and value coercion, and Jev policy
+  (75 total). `scripts/e2e.mjs` covers routing, the design brief and chat operating
+  both a registry UI and a sandboxed app; `scripts/voice-agent.mjs` covers
+  read → act → read with no rebuild.
+
 ### Changed
+- New shell: a prompt-first landing page, then a workspace with the generated UI on
+  the left and a "Talk to it" panel on the right (Jev decision, one thread for chat
+  and voice, try-it chips, mic toggle). Geist / Instrument Serif, graphite and
+  vermilion tokens. The floating voice dialog is gone.
+- A themed UI no longer repaints the whole page background.
+- Removed one-off spike scripts that targeted the old UI.
+
+### Fixed
+- Malformed JSON bodies get a JSON 400 instead of an HTML page and a stack trace.
+- The sandbox text digest no longer drops its last update, which could leave
+  `read_ui` describing a stale screen.
+- Artifacts that import npm packages now report their height, so the frame fits the
+  app instead of scrolling inside it.
+- `scripts/live-grok.mjs` builds its screenshot path correctly on Windows.
+
+### Changed (Grok backend)
 - Default text generation is Grok `grok-4.7` through the xAI Responses API
   (`openai` SDK, `baseURL` `https://api.x.ai/v1`, JSON schema output). Set
   `XAI_API_KEY`. `GENERATOR=gemini` keeps the previous Gemini path.
