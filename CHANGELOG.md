@@ -7,6 +7,44 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Real build progress.** Generation is streamed and read as it arrives
+  (`src/server/spec-progress.ts`): `/api/stream` sends `progress` events with the phase,
+  the design brief as soon as it is written, the title, and each part as it lands. The
+  build timeline replaces the placeholder bars with real steps, an elapsed timer and
+  an indeterminate bar (no made-up percentage).
+- **Build by voice.** "Say it" on the landing page opens a voice session with an empty
+  canvas; the agent hands spoken requests to the browser (`buildRequest`), which builds
+  through the same routed, streamed path as typing, then keeps operating the result.
+  Voice refines also go through the streamed path.
+- **Frontend and backend as separate services.** One multi-stage `Dockerfile`
+  (`api`, `web`, `all`); compose runs `web` (nginx + client, same-origin proxy for
+  `/api`, `/voice`, `/docs`) and `api` (Express).
+- **Structured logs.** One line per request, decision, design brief, model call
+  (latency, time to first token, input/cached/output/reasoning tokens), chat turn and
+  voice tool call, tagged with a request or session id. `LOG_LEVEL`, `LOG_FORMAT=json`,
+  json-file log rotation in compose, nginx request log on `web`.
+- Six voice-controlled demo clips, one per gallery example; `scripts/voice-build.mjs`.
+
+### Security
+From a review of the whole repo (server/deploy and browser sandboxes). Each fix is checked
+live by `scripts/security-check.mjs`.
+- `/voice` checked no `Origin`, so any website could open sessions on the owner's xAI
+  key. It now rejects other sites (403), caps sessions per client and per minute,
+  limits message size and typed text, and rate-limits server-side voice builds.
+- CORS was `*` by default; it is now off unless `CORS_ORIGIN` is set.
+- A spec sent back for refine or chat had no size limit and went into the model
+  prompt (cost amplification); it is capped (`MAX_SPEC_CHARS`) and re-validated.
+- `.dockerignore` only excluded `.env` and `.env.local`, so a local `.env.backup*`
+  could be copied into the single-container image; every `.env*` except
+  `.env.example` is now excluded.
+- A model-set `Swatch` color or early-brief palette entry such as `url(https://…)`
+  made the parent page fetch it (it could carry typed values out); colors are now hex
+  only.
+- A sandboxed app could navigate itself to another site and keep the bridge's trust
+  (calls, args, a text digest the agent reads). The host now detects the second load,
+  drops the frame's actions and digest, and replaces it with a notice. Fullscreen is
+  no longer granted to artifacts.
+- Gemini Live errors are sanitized like Grok's before reaching the browser.
 - **Talk to the UI and it operates it.** Chat (`POST /api/chat`) and voice share one
   control surface: every registry input, seeded value and button is operable
   (`set:<key>`, `press:<id>`), and sandboxed apps expose named actions with

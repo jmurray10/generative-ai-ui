@@ -31,6 +31,46 @@ a one-shot chat decider or an agentic voice loop.** The interesting engineering 
 the powerful-but-unbounded model output *safe* and *legible* on the way to the DOM, and
 letting agents *use* a generated UI without regenerating it.
 
+## PEAS — each agent's task environment
+
+Each model path was specified the classical way before it was built: **P**erformance
+measure, **E**nvironment, **A**ctuators, **S**ensors (Russell & Norvig). Then the
+environment was classified and the simplest architecture that fits was chosen. PEAS also
+decides which components are a model and which stay code. The default is code; the model
+gets only the step code can't do. The performance measures are the ones the checks and
+logs actually report.
+
+| | Router (`/api/decide`) | Generator (`/api/stream`) | Chat (`/api/chat`) | Voice (`/voice`) |
+| --- | --- | --- | --- | --- |
+| **P** | Correct route / ask / hold on the labelled set (`scripts/jev-eval.ts`, held-out split); injections and contradictions held; at most one question per prompt; ~2 s (`ms` on the `decision` log line) | The spec validates and renders (not the degraded notice); a design brief is present; the lane and pieces follow the route; time to brief and total build time (`design brief`, `model call` log lines) | Acts land on real controls (`ok` per act); no rebuild when a control fits; the reply matches what happened (grounded confirm); one decision call + one confirm | Requests done with the fewest tools; never claims success on `ok:false`; reads before answering; no rebuild for an operable change; spoken latency (`tool` log lines) |
+| **E** | One prompt plus the component registry | Prompt + routing hints, the component vocabulary, the safe expression subset | The live UI: screen text, operable controls, last 8 turns | The live UI and a person talking, across many turns |
+| **A** | Typed answers only (code maps them to route / ask / hold) | One `UISpec`, design brief first | `reply`, `acts[]` (`set` / `press` / `call`), or `refine` / `generate` | `read_ui`, `act_ui`, `refine_ui`, `generate_ui`, speech |
+| **S** | The prompt text (data, never instructions) | The prompt text + ROUTING block | SCREEN text + iframe digests, CONTROLS, history, MESSAGE | Mic audio, `read_ui` results (screen + controls), tool results, typed messages |
+
+**Environment classification → architecture**
+
+| | Observable | Deterministic | Episodic / sequential | Static / dynamic | Architecture |
+| --- | --- | --- | --- | --- | --- |
+| Router | fully (the prompt is all there is) | stochastic model, deterministic policy | episodic (one re-route after an answer) | static | **classifier + code policy**. The model fills a fixed questionnaire; thresholds decide. |
+| Generator | fully | stochastic | episodic (one call; refine is a new episode) | static | **simple reflex**: prompt → spec, one call, no loop. Multi-screen is a fixed workflow (plan → parallel expand), not planning. |
+| Chat | partially (canvas apps are read through their text digest and exposed actions) | stochastic | sequential within a thread | dynamic (sandboxed apps tick, animate, play) | **model-based reflex**: one decision per message from the current screen state, then a grounded restatement from the real results. |
+| Voice | partially | stochastic | sequential | dynamic (the user can talk over it; apps change on their own) | **goal-directed loop**: perceive (`read_ui`) → act → observe → continue until the spoken request is done. |
+
+**LLM or code, per component** (the "LLMs upgrade components, not architectures" rule)
+
+| Component | Model | Code |
+| --- | --- | --- |
+| Percept interpretation | reading the prompt, the speech, the screen text | control discovery (`controlHub`), screen digests, `sanitizeActs` |
+| Action selection | which tool or act; what to build | route / ask / hold policy and thresholds; which control ids are allowed; act coercion and clamping |
+| State | none kept by the model between calls | the reactive store, the control hub, the chat thread, the voice session |
+| Outcome evaluation | the grounded chat restatement | `validateSpec`, the WCAG theme check, no-op refine detection, `ok` per act |
+| Output | UI spec, replies, speech | templates for "why" lines and ask copy; the build timeline |
+
+The router is the PEAS argument in miniature. Its environment is fully observable and
+episodic, so it doesn't need an agent loop at all. A classifier answering typed questions,
+plus a policy in code, is the simplest design that meets its performance measure. That is
+also why its thresholds can be tuned and tested offline.
+
 ## Path 1 — routing (Jev, a classifier)
 
 Before every new build the client calls `POST /api/decide`. `decideToolbox()`
@@ -74,8 +114,15 @@ client.responses.create({
   reasoning: { effort: 'low' },   // grok-4.7's own default is high
   max_output_tokens: 16384,
   prompt_cache_key: 'genui-playground',
+  stream: true,                   // deltas feed the live build timeline
 })
 ```
+
+The call is streamed. `SpecScanner` (`src/server/spec-progress.ts`) reads the JSON as it
+arrives and reports the phase, the design brief the moment it closes, the title and each
+top-level part. That is progress only: the complete text is still extracted and validated
+before anything renders. Each call logs latency, time to first token and token usage
+(input, cached, output, reasoning).
 
 `GENERATOR=gemini` still uses `@google/genai` `generateContent` with
 `responseMimeType: 'application/json'` and `GEMINI_MODEL` (default `gemini-3.5-flash`),
@@ -158,8 +205,15 @@ operating over rebuilding:
 | --- | --- |
 | `read_ui` | Round-trips to the browser for the **current** on-screen text **and the list of operable controls**, so the agent answers from real values — never invented data. |
 | `act_ui` | Operates the UI without rebuilding it: `set:<key>`, `press:<id>`, `call:<name>`. The server forwards the sanitized acts to the browser (`actRequest`), which runs them through the same `controlHub` as chat and returns per-act results (`actResult`). |
-| `refine_ui` | Edits the current screen's design/structure (delegates to the same generator as `/api/stream`); reports `ok:false` on a no-op. |
-| `generate_ui` | Replaces the screen with a brand-new UI. |
+| `refine_ui` | Edits the current screen's design/structure; reports `ok:false` on a no-op. |
+| `generate_ui` | Builds a new UI, including the first one when the screen is empty. |
+
+`generate_ui` and `refine_ui` don't generate on the server when the browser can build
+(`buildRequest` → `buildResult`). The browser runs them through the same path as a typed
+prompt: Jev routes (never asks, since the agent already clarified out loud), the build streams
+with live progress, and the result (`{ ok, built, design }` or an error such as a router
+hold) goes back to the agent as the tool output. So "Say it" on the landing page is a voice
+conversation that ends in a build and then keeps going.
 
 This is the part that is an agent in every sense: it perceives (audio + live UI), chooses a
 tool, the world changes (state updates, an artifact action runs, or the React tree
