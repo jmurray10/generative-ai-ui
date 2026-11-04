@@ -120,7 +120,8 @@ Every new build is **decide → stream → operate**:
         │                              ▼                         │
         │                       validateSpec()  (normalize/repair)│
         │                              │                         │
-        │     SSE: event meta → event node × N → event done       │
+        │  SSE: progress × N while the model writes (phase,      │
+        │       brief, title, parts, ms) → meta → node × N → done │
         └──────────────────────────────┬─────────────────────────┘
                                         │  UISpec (JSON), streamed
    ③ RENDER                             ▼
@@ -136,9 +137,16 @@ Every new build is **decide → stream → operate**:
         │  voice: WS /voice → read_ui | act_ui | refine_ui |      │
         │                     generate_ui                         │
         │  acts run IN THE BROWSER via controlHub (no rebuild);   │
-        │  refine/generate go back through the generator (②)      │
+        │  chat refine/generate go back through the generator (②);│
+        │  voice generate_ui/refine_ui ask the BROWSER to run ①②  │
+        │  (buildRequest), so spoken builds are routed + streamed │
         └──────────────────────────────────────────────────────┘
 ```
+
+In Docker, the browser talks only to the `web` container (nginx), which serves the
+client and proxies `/api`, `/voice` and `/docs` to the `api` container on the same
+origin (§11). Every step above writes a log line tagged with the request id (`rid`)
+or voice session id (`sid`).
 
 The client drives this in `routeThenBuild` (`src/client/App.tsx`): it calls
 `/api/decide` before every new build, then streams with the decision's `lane`,
@@ -548,6 +556,7 @@ src/
     voice-grok.ts           # Grok speech-to-speech (default); readRequest/actRequest round-trips
     voice-gemini.ts         # Gemini Live, VOICE_PROVIDER=gemini
     voice-tools.ts          # read_ui / act_ui / refine_ui / generate_ui + VOICE_SYSTEM
+    voice-guard.ts          # /voice Origin check, per-client session caps, client IP via private proxies
     grok.ts                 # Grok Responses API generator (design-first schema, streamed)
     spec-progress.ts        # SpecScanner: phase / brief / title / parts from the streamed spec
     log.ts                  # one-line structured logs (LOG_LEVEL, LOG_FORMAT), request ids
@@ -579,6 +588,7 @@ scripts/
   e2e.mjs                   # live: Jev route, design brief, chat operating registry + sandbox actions
   voice-agent.mjs           # live voice: read_ui → act_ui → read_ui, no rebuild
   voice-build.mjs           # live: build by voice from the landing page, then operate by voice
+  security-check.mjs        # live, no model calls: /voice origin rule, CORS off, spec cap, sandbox navigation
   record.mjs / speak.ts     # demo clips (incl. voice-<example>) / Grok voice line → WAV for the fake mic
   live-grok.mjs             # live Grok gate (generate, UI, one voice turn)
   shot.mjs                  # README screenshot
@@ -597,8 +607,8 @@ stream (SSE, `proxy_buffering off`, 300 s) and voice WebSocket (1 h) pass throug
 (`TRUST_PROXY`), so the per-IP rate limit still applies per user. Either image deploys
 alone; set `API_UPSTREAM` on `web` to the API's address.
 
-Unit tests (`npm test`, 80 tests): `src/server/*.test.ts` (incl. `chat.test.ts`,
-`toolbox.test.ts`, `spec-progress.test.ts`), `src/server/jev/*.test.ts`, `src/client/engine/*.test.ts` (incl.
+Unit tests (`npm test`, 83 tests): `src/server/*.test.ts` (incl. `chat.test.ts`,
+`toolbox.test.ts`, `spec-progress.test.ts`, `voice-guard.test.ts`), `src/server/jev/*.test.ts`, `src/client/engine/*.test.ts` (incl.
 `control.test.ts`), `src/client/voice/*.test.ts`.
 
 ---
@@ -720,6 +730,22 @@ decision card in the "Talk to it" panel shows them with the source (*Jev · Type
 | hold: injection / contradictory | stop — nothing is built |
 | hold: low confidence / router error, or `/api/decide` fails | stream unrouted; the model chooses the tools |
 
-Gallery examples call decide with `answered=true`, so curated prompts route or hold but
-never ask. Jev decides **how** a prompt is built (lane, structural pieces); it never
-fixes the look — the style family is only a hint to the design brief.
+Gallery examples and voice requests call decide with `answered=true`, so curated
+prompts and requests the voice agent already clarified out loud route or hold but never
+ask. An answer to the one question is sent back labelled by the slot Jev asked about
+(`Audience:`, `Data:` or `Main action:`). Jev decides **how** a prompt is built (lane,
+structural pieces); it never fixes the look — the style family is only a hint to the
+design brief.
+
+**Measured with Jev itself** (`jev-1.13.0`, `npx tsx scripts/jev-eval.ts --heldout`, with
+`.env` loaded into the process; the script does not read `.env` on its own):
+
+| Split | Correct |
+|---|---|
+| tune (thresholds were fit here) | 25/25 |
+| showcase | 4/4 |
+| held-out | 16/17 (`r09`: asks for the audience on a prompt labelled route) |
+| safety holds (injection, contradictory) | 10/10 |
+
+Decisions take about 120–250 ms with Jev, against about 2–3 s for the Grok judge on
+`grok-4.20-0309-non-reasoning`.
