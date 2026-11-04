@@ -44,7 +44,7 @@ export const examples: Example[] = [
     id: 'mortgage',
     title: 'Home affordability',
     prompt:
-      'a home affordability planner: income, monthly debts, down payment, interest rate and loan term inputs, showing the monthly payment, maximum home price, debt-to-income ratio and a cost breakdown',
+      'a home affordability planner on one screen: income, monthly debts, down payment, interest rate and loan term inputs beside live results — the monthly payment, maximum home price, debt-to-income ratio and a cost breakdown',
     blurb: 'Registry lane: reactive state you can steer by voice.',
     lane: 'registry',
     tryIt: ['Set the rate to 6.25%', 'What if my down payment is $90,000?', 'Read me the monthly payment'],

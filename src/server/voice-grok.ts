@@ -24,7 +24,11 @@ import {
 } from './config.ts';
 import { getGenerator } from './generator.ts';
 import { GROK_VOICE_TOOLS, runVoiceTool, VOICE_SYSTEM, type ScreenRead } from './voice-tools.ts';
-import type { UIAct, UIActResult, UIControl } from '../shared/control.ts';
+import { sanitizeActs, type BuildKind, type BuildOutcome, type UIAct, type UIActResult, type UIControl } from '../shared/control.ts';
+import { logger, preview, rid, since } from './log.ts';
+import { createVoiceGuard, VOICE_MAX_PAYLOAD, VOICE_MAX_TEXT } from './voice-guard.ts';
+
+const log = logger('voice');
 
 export interface MappedVoiceEvent {
   toClient: Array<Record<string, unknown>>;
@@ -129,17 +133,19 @@ function sessionUpdate(voice: string, reasoning: 'high' | 'none'): string {
 export function attachGrokVoice(server: Server, env: NodeJS.ProcessEnv = process.env): void {
   const key = xaiKey(env);
   if (!key) {
-    console.log('[voice] grok selected but XAI_API_KEY is missing');
+    log.warn('grok selected but XAI_API_KEY is missing; voice is off');
     return;
   }
   const model = grokVoiceModel(env);
   const voice = grokVoiceName(env);
   const reasoning = grokVoiceReasoning(env);
   const generator = getGenerator(env);
-  const wss = new WebSocketServer({ server, path: '/voice' });
-  console.log(`[voice] Grok speech-to-speech ready at /voice (model ${model}, voice ${voice}, generator ${generator.name})`);
+  const guard = createVoiceGuard();
+  const wss = new WebSocketServer({ server, path: '/voice', maxPayload: VOICE_MAX_PAYLOAD, verifyClient: guard.verifyClient });
+  log.info('ready', { path: '/voice', model, voice, generator: generator.name });
 
-  wss.on('connection', (browser) => {
+  wss.on('connection', (browser, req) => {
+    const client = guard.track(req);
     let live: WebSocket | null = null;
     let spec: UISpec = { tree: [] };
     let readable = '';
@@ -153,6 +159,12 @@ export function attachGrokVoice(server: Server, env: NodeJS.ProcessEnv = process
     let toolTimer: ReturnType<typeof setTimeout> | null = null;
     const pendingReads = new Map<string, (value: ScreenRead | null) => void>();
     const pendingActs = new Map<string, (value: UIActResult[] | null) => void>();
+    const pendingBuilds = new Map<string, (value: BuildOutcome | null) => void>();
+    let clientBuilds = false; // the browser said it can run builds itself
+    const sid = rid();
+    const opened = Date.now();
+    const toolCounts: Record<string, number> = {};
+    log.info('session open', { sid, ip: client.ip });
 
     const sendBrowser = (payload: unknown) => {
       try { browser.send(JSON.stringify(payload)); } catch { /* closed */ }
@@ -170,6 +182,15 @@ export function attachGrokVoice(server: Server, env: NodeJS.ProcessEnv = process
       const timer = setTimeout(() => { pendingActs.delete(id); resolve(null); }, 5000);
       pendingActs.set(id, (value) => { clearTimeout(timer); resolve(value); });
       sendBrowser({ type: 'actRequest', id, acts });
+    });
+
+    // Builds run in the browser (router + live progress); a build can take a minute or more.
+    const requestBuild = (kind: BuildKind, text: string): Promise<BuildOutcome | null> => new Promise((resolve) => {
+      if (!clientBuilds) return resolve(null);
+      const id = Math.random().toString(36).slice(2);
+      const timer = setTimeout(() => { pendingBuilds.delete(id); resolve(null); }, 180_000);
+      pendingBuilds.set(id, (value) => { clearTimeout(timer); resolve(value); });
+      sendBrowser({ type: 'buildRequest', id, kind, text });
     });
 
     const continueAfterTools = () => {
@@ -193,8 +214,23 @@ export function attachGrokVoice(server: Server, env: NodeJS.ProcessEnv = process
         args = {};
       }
       sendBrowser({ type: 'tool', name: call.name, args });
+      const t0 = Date.now();
+      toolCounts[call.name] = (toolCounts[call.name] ?? 0) + 1;
       try {
-        const outcome = await runVoiceTool(call.name, args, { generator, spec, readable, requestRead, requestAct });
+        const outcome = await runVoiceTool(call.name, args, {
+          generator, spec, readable, requestRead, requestAct, requestBuild,
+          allowServerBuild: () => guard.allowBuild(client.ip),
+        });
+        const r = outcome.result as { ok?: boolean; error?: string; results?: UIActResult[] };
+        log.info('tool', {
+          sid,
+          name: call.name,
+          ms: since(t0),
+          ok: r.ok,
+          acts: call.name === 'act_ui' ? sanitizeActs(args.acts).map((a) => a.action).join(',') : undefined,
+          text: typeof args.prompt === 'string' ? preview(args.prompt) : typeof args.instruction === 'string' ? preview(args.instruction) : undefined,
+          error: r.error,
+        });
         if (outcome.spec) {
           spec = outcome.spec;
           sendBrowser({ type: 'spec', spec });
@@ -208,7 +244,7 @@ export function attachGrokVoice(server: Server, env: NodeJS.ProcessEnv = process
           },
         }));
       } catch (err) {
-        console.error('[voice] tool failed:', (err as Error).message);
+        log.error('tool failed', { sid, name: call.name, ms: since(t0), err: (err as Error).message });
       } finally {
         toolInflight -= 1;
         if (toolInflight === 0) continueAfterTools();
@@ -236,7 +272,9 @@ export function attachGrokVoice(server: Server, env: NodeJS.ProcessEnv = process
         let event: Record<string, unknown>;
         try { event = JSON.parse(data.toString()) as Record<string, unknown>; } catch { return; }
         const eventType = typeof event.type === 'string' ? event.type : '';
-        if (eventType.startsWith('session.') || eventType === 'error') console.log(`[voice] ${eventType}`);
+        if (eventType === 'error') log.warn('upstream event error', { sid, detail: JSON.stringify(event.error ?? event).slice(0, 300) });
+        else if (eventType.startsWith('session.')) log.debug(eventType, { sid });
+        else if (eventType === 'conversation.item.input_audio_transcription.completed') log.debug('heard', { sid, text: preview(String(event.transcript ?? '')) });
         const mapped = mapGrokServerEvent(event, assistantTranscript);
         assistantTranscript = mapped.assistantTranscript;
         for (const message of mapped.toClient) {
@@ -253,14 +291,14 @@ export function attachGrokVoice(server: Server, env: NodeJS.ProcessEnv = process
         }
         if (mapped.functionCall) {
           handleFunction(mapped.functionCall).catch((err) => {
-            console.error('[voice] tool failed:', (err as Error).message);
+            log.error('tool failed', { sid, err: (err as Error).message });
           });
         }
       });
 
       upstream.on('error', (err) => {
         const message = (err as Error).message || 'Voice connection failed';
-        console.error('[voice] upstream:', message);
+        log.error('upstream error', { sid, err: message });
         if (/401|403|unauthorized/i.test(message)) {
           closing = true;
           sendBrowser({ type: 'error', message: sanitizeVoiceError(message) });
@@ -274,6 +312,7 @@ export function attachGrokVoice(server: Server, env: NodeJS.ProcessEnv = process
         if (closing || browser.readyState !== WebSocket.OPEN) return;
         if (reconnects < 3) {
           reconnects += 1;
+          log.warn('upstream closed, reconnecting', { sid, attempt: reconnects });
           setTimeout(connectLive, 300);
         } else {
           sendBrowser({ type: 'error', message: 'Voice session ended — reconnect to start again.' });
@@ -286,7 +325,9 @@ export function attachGrokVoice(server: Server, env: NodeJS.ProcessEnv = process
       try { message = JSON.parse(buf.toString()) as Record<string, unknown>; } catch { return; }
       try {
         if (message.type === 'init') {
+          clientBuilds = message.canBuild === true;
           spec = (message.spec as UISpec) ?? { tree: [] };
+          log.info('session init', { sid, onScreen: spec.title ?? (spec.tree?.length ? 'untitled' : 'empty'), clientBuilds });
           readable = typeof message.readable === 'string' ? message.readable : '';
           if (!live) {
             connectLive();
@@ -316,6 +357,16 @@ export function attachGrokVoice(server: Server, env: NodeJS.ProcessEnv = process
             pendingActs.delete(id);
             cb(Array.isArray(message.results) ? (message.results as UIActResult[]).slice(0, 12) : null);
           }
+        } else if (message.type === 'buildResult') {
+          const id = typeof message.id === 'string' ? message.id : '';
+          const cb = pendingBuilds.get(id);
+          if (cb) {
+            pendingBuilds.delete(id);
+            const r = message.result as BuildOutcome | null;
+            cb(r && typeof r.ok === 'boolean'
+              ? { ok: r.ok, ...(typeof r.title === 'string' ? { title: r.title.slice(0, 120) } : {}), ...(typeof r.direction === 'string' ? { direction: r.direction.slice(0, 120) } : {}), ...(typeof r.error === 'string' ? { error: r.error.slice(0, 200) } : {}) }
+              : null);
+          }
         } else if (message.type === 'audio' && live?.readyState === WebSocket.OPEN && typeof message.audio === 'string') {
           live.send(JSON.stringify({ type: 'input_audio_buffer.append', audio: message.audio }));
         } else if (message.type === 'text' && live?.readyState === WebSocket.OPEN && typeof message.text === 'string') {
@@ -324,7 +375,7 @@ export function attachGrokVoice(server: Server, env: NodeJS.ProcessEnv = process
             item: {
               type: 'message',
               role: 'user',
-              content: [{ type: 'input_text', text: message.text }],
+              content: [{ type: 'input_text', text: message.text.slice(0, VOICE_MAX_TEXT) }],
             },
           }));
           live.send(JSON.stringify({ type: 'response.create' }));
@@ -335,7 +386,11 @@ export function attachGrokVoice(server: Server, env: NodeJS.ProcessEnv = process
     });
 
     const cleanup = () => {
+      client.release();
+      if (!closing) log.info('session close', { sid, s: Math.round((Date.now() - opened) / 1000), tools: Object.entries(toolCounts).map(([k, v]) => `${k}:${v}`).join(',') || undefined });
       closing = true;
+      for (const cb of pendingBuilds.values()) cb(null);
+      pendingBuilds.clear();
       if (toolTimer) clearTimeout(toolTimer);
       if (readyTimer) clearTimeout(readyTimer);
       for (const cb of pendingReads.values()) cb(null);

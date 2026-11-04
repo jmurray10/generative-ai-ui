@@ -37,8 +37,12 @@ instead of regenerating it.
    ask you one question first, or whether to hold it (prompt injection,
    contradictions).
 2. **Design & build.** Grok commits to a **design brief** before writing any UI: one
-   of 13 named directions, a font pair, a palette, one signature moment. Then it
-   streams the UI in. The brief is shown above every result.
+   of 13 named directions, a font pair, a palette, one signature moment. The model's
+   output is streamed and read as it arrives, so the build timeline shows real
+   progress (choose tools → think → brief, shown as soon as it's written → each part
+   as it lands → render) with an elapsed timer and no made-up percentage.
+   You can type the request or **say it**: the voice agent hands spoken requests to
+   the same routed, streamed build, then stays in the conversation to operate the result.
 3. **Operate.** Chat and voice share one control surface. Registry UIs expose every
    input and button automatically (`set:rate`, `press:reset`); sandboxed apps expose
    named actions with `window.genui.expose({...})` (`call:play`, `call:flyTo`), which
@@ -64,9 +68,28 @@ everything after it plays in real time. Click a still to play the clip.
 </tr>
 </table>
 
-In the voice clip the question is a pre-recorded line in xAI's `leo` voice, fed to
+In the voice clips the request is a pre-recorded line in xAI's `leo` voice, fed to
 the browser as its microphone; Grok answers in the app's `eve` voice. The
 conversation panel shows both transcripts.
+
+### Every example, by voice
+
+One short clip per gallery example: the live build timeline (the wait compressed to
+about 3 seconds), then a spoken command operates the generated app and Grok answers
+aloud. Sound on.
+
+<table>
+<tr>
+<td width="33%"><a href="docs/media/voice-trading.mp4"><img src="docs/media/voice-trading.png" alt="Trading terminal switched to Ethereum by voice"></a><br><sub><b>Trading terminal</b>: “Switch the chart to Ethereum.”</sub></td>
+<td width="33%"><a href="docs/media/voice-solar.mp4"><img src="docs/media/voice-solar.png" alt="3D solar system flies to Saturn by voice"></a><br><sub><b>3D solar system</b>: “Fly to Saturn.”</sub></td>
+<td width="33%"><a href="docs/media/voice-drums.mp4"><img src="docs/media/voice-drums.png" alt="Drum machine plays a preset by voice"></a><br><sub><b>Drum machine</b>: “Play the funkiest preset at 128.”</sub></td>
+</tr>
+<tr>
+<td><a href="docs/media/voice-mortgage.mp4"><img src="docs/media/voice-mortgage.png" alt="Home affordability rate set by voice"></a><br><sub><b>Home affordability</b>: “Set the rate to 6¼%. What is the payment?”</sub></td>
+<td><a href="docs/media/voice-incidents.mp4"><img src="docs/media/voice-incidents.png" alt="Incident console filtered by voice"></a><br><sub><b>Incident console</b>: “Show only the critical alerts.”</sub></td>
+<td><a href="docs/media/voice-snake.mp4"><img src="docs/media/voice-snake.png" alt="Snake started by voice"></a><br><sub><b>Snake</b>: “Start the game.”</sub></td>
+</tr>
+</table>
 
 ## The three lanes
 
@@ -109,6 +132,32 @@ cp .env.example .env     # add XAI_API_KEY (and TYPESAFE_API_KEY for Jev)
 docker compose up --build        # http://localhost:8080
 ```
 
+Compose runs the frontend and backend as two services, built from one multi-stage
+`Dockerfile`:
+
+| Service | Image target | What it does |
+| ------- | ------------ | ------------ |
+| `web` | `web` | nginx with the built client; proxies `/api`, `/voice` (WebSocket), `/docs` to `api` on the same origin, with buffering off for the build stream. The only published port. |
+| `api` | `api` | Express on tsx: generation, chat, Jev routing, realtime voice. No client bundle. |
+
+Each image deploys on its own (point `API_UPSTREAM` at wherever the API runs).
+`docker build --target all .` still builds the single container that serves both.
+
+**Logs.** `docker compose logs -f api` prints one line per event: requests, Jev
+decisions, the design brief, model calls (latency, time to first token, input,
+cached, output and reasoning tokens), chat acts, and voice tool calls. Lines for one
+request share an `rid`, and voice sessions share an `sid`. Set `LOG_LEVEL=debug` for
+each streamed part and voice transcripts, or `LOG_FORMAT=json` for a log shipper.
+`docker compose logs -f web` is the nginx request log, with upstream timings.
+
+```
+INFO  http    decision rid=be4b62 decider=grok kind=route lane=registry style=soft_consumer ms=2766
+INFO  http    build start rid=58992f lane=registry style=soft_consumer prompt="A tip calculator app…"
+INFO  http    design brief rid=58992f direction=Organic ms=3503
+INFO  grok    model call rid=58992f call=ui_spec model=grok-4.7 ms=7731 firstTokenMs=2308 inTok=6352 cachedTok=1152 outTok=685
+INFO  voice   tool sid=351008 name=act_ui ms=2 ok=true acts=set:bill
+```
+
 Without Docker:
 
 ```bash
@@ -126,7 +175,7 @@ Swagger UI at **`/docs`** (raw spec at `/openapi.json`).
 | GET    | `/api/health`   | Liveness, generator, voice and router in use |
 | GET    | `/api/examples` | Example *prompts* for the gallery (no canned specs) |
 | POST   | `/api/decide`   | `{ prompt, answered? }` → Jev decision: route / ask / hold |
-| POST   | `/api/stream`   | `{ prompt, spec?, lane?, components?, style? }` → SSE build (generate, refine, multi-screen) |
+| POST   | `/api/stream`   | `{ prompt, spec?, lane?, components?, style? }` → SSE build: `progress` (phase, brief, parts) while the model writes, then `meta`, `node`, `done` |
 | POST   | `/api/generate` | `{ prompt }` → `{ spec }` (one-shot JSON) |
 | POST   | `/api/chat`     | `{ message, spec, readable, controls, history }` → `{ reply, acts, spec? }` |
 | POST   | `/api/chat/confirm` | `{ message, results, readable }` → `{ reply }` grounded in what the acts actually did |
@@ -144,17 +193,25 @@ Swagger UI at **`/docs`** (raw spec at `/openapi.json`).
 | `JEV_JUDGE_MODEL` | `grok-4.20-0309-non-reasoning` (compose) | Model for the Grok judge |
 | `GENERATOR` | `grok` | `gemini` and `stub` stay available; `VOICE_PROVIDER=gemini` keeps Gemini Live |
 
+| `LOG_LEVEL` / `LOG_FORMAT` | `info` / `pretty` | `debug` adds streamed parts and voice transcripts; `json` for log shippers |
+
 Optional: `XAI_BASE_URL`, `GROK_REASONING_EFFORT` (default `low`),
-`RATE_LIMIT_PER_MIN`, `MAX_PROMPT_CHARS`, `STREAM_STAGGER_MS`, `CORS_ORIGIN`.
+`RATE_LIMIT_PER_MIN`, `MAX_PROMPT_CHARS`, `STREAM_STAGGER_MS`, `CORS_ORIGIN`,
+`TRUST_PROXY` (default: private-network proxies), `WEB_PORT` (compose, default 8080),
+`API_UPSTREAM` (web image, default `api:8080`), `MAX_SPEC_CHARS` (200000),
+`VOICE_MAX_SESSIONS` (2 per client), `VOICE_OPENS_PER_MIN` (10). Security notes are in
+[`SECURITY.md`](./SECURITY.md).
 
 ## Checks
 
 ```bash
-npm run typecheck && npm test        # 75 unit tests: Jev policy, chat runner, controls, spec, voice events
-node scripts/e2e.mjs                 # live: Jev route, design brief, chat operating a registry UI and a sandboxed app
+npm run typecheck && npm test        # 83 unit tests: Jev policy, chat runner, controls, spec, stream progress, voice guard, voice events
+node scripts/e2e.mjs                 # live: Jev route, live build timeline, design brief, chat operating a registry UI and a sandboxed app
 node scripts/voice-agent.mjs         # live: read_ui → act_ui → read_ui over /voice, no rebuild
+node scripts/voice-build.mjs         # live: build a UI by voice from the landing page, then operate it by voice
 node scripts/live-grok.mjs           # live: generate, render, one voice turn
-node scripts/record.mjs              # re-record the demo clips (needs ffmpeg)
+node scripts/security-check.mjs      # live, no model calls: /voice origin rule, CORS off, spec cap, sandbox navigation, CSS colors
+node scripts/record.mjs              # re-record the demo clips (needs ffmpeg); voice-<example> for the per-example clips
 ```
 
 The live scripts need a running server with `XAI_API_KEY` and are not part of CI.
@@ -171,7 +228,9 @@ the `design-showcases` work.
 
 ```
 generative-ai-ui/
-├── docker-compose.yml            single container, API + built client on :8080
+├── Dockerfile                    multi-stage: api, web, all
+├── docker-compose.yml            web (nginx + client, :8080) and api (Express) services
+├── deploy/nginx.conf.template    same-origin proxy for /api, /voice, /docs
 ├── docs/                         README assets (hero still, demo clips)
 ├── scripts/                      e2e, voice and live checks, Jev eval, clip recorder
 └── src/
@@ -180,7 +239,9 @@ generative-ai-ui/
     │   ├── index.ts              routes: /api/decide, /api/stream, /api/chat, /api/generate, /docs
     │   ├── toolbox.ts, jev/      Jev client, Grok judge, code-owned policy + thresholds
     │   ├── prompt.ts             system prompt: component vocabulary, design brief, interaction rules
-    │   ├── grok.ts               Grok generator (design brief first in the schema)
+    │   ├── grok.ts               Grok generator (design brief first in the schema, streamed)
+    │   ├── spec-progress.ts      reads the streamed spec: phase, brief, parts
+    │   ├── log.ts                one-line structured logs
     │   ├── chat.ts               chat turn: answer, operate (acts) or rebuild
     │   ├── voice*.ts             /voice bridge and its tools
     │   └── validate.ts           server-side validateSpec
@@ -192,7 +253,9 @@ generative-ai-ui/
 ```
 
 More detail in [`ARCHITECTURE.md`](./ARCHITECTURE.md); how each model is used is in
-[`LLM.md`](./LLM.md).
+[`LLM.md`](./LLM.md), including a **PEAS spec** (performance measure, environment,
+actuators, sensors) for each of the four agents (router, generator, chat, voice), how
+each environment is classified, and why each one gets the architecture it has.
 
 ## Contributing
 

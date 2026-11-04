@@ -13,6 +13,8 @@ import type { UISpec } from '../shared/spec.ts';
 import { geminiKey, geminiLiveModel, geminiLiveVoice } from './config.ts';
 import { getGenerator } from './generator.ts';
 import { runVoiceTool, VOICE_SYSTEM, type ScreenRead } from './voice-tools.ts';
+import { createVoiceGuard, VOICE_MAX_PAYLOAD, VOICE_MAX_TEXT } from './voice-guard.ts';
+import { sanitizeVoiceError } from './voice-grok.ts';
 
 const TOOL_DECLS = [
   {
@@ -55,10 +57,12 @@ export function attachGeminiVoice(server: Server, env: NodeJS.ProcessEnv = proce
   const voice = geminiLiveVoice(env);
   const ai = new GoogleGenAI({ apiKey: key });
   const generator = getGenerator(env);
-  const wss = new WebSocketServer({ server, path: '/voice' });
+  const guard = createVoiceGuard();
+  const wss = new WebSocketServer({ server, path: '/voice', maxPayload: VOICE_MAX_PAYLOAD, verifyClient: guard.verifyClient });
   console.log(`[voice] Gemini Live voice ready at /voice (model ${model}, voice ${voice}, generator ${generator.name})`);
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req) => {
+    const client = guard.track(req);
     let live: LiveSession | null = null;
     let spec: UISpec = { tree: [] };
     let readable = '';
@@ -134,6 +138,7 @@ export function attachGeminiVoice(server: Server, env: NodeJS.ProcessEnv = proce
                     spec,
                     readable,
                     requestRead,
+                    allowServerBuild: () => guard.allowBuild(client.ip),
                   });
                   if (outcome.spec) {
                     spec = outcome.spec;
@@ -146,7 +151,7 @@ export function attachGeminiVoice(server: Server, env: NodeJS.ProcessEnv = proce
             },
             onerror: (err: { message?: string } | unknown) => {
               const message = err && typeof err === 'object' && 'message' in err ? String((err as { message?: string }).message) : String(err);
-              send({ type: 'error', message });
+              send({ type: 'error', message: sanitizeVoiceError(message) });
             },
             onclose: () => {
               if (closing || ws.readyState !== 1 || connecting) return;
@@ -184,14 +189,15 @@ export function attachGeminiVoice(server: Server, env: NodeJS.ProcessEnv = proce
         } else if (message.type === 'audio' && live && message.audio) {
           live.sendRealtimeInput({ audio: { data: message.audio, mimeType: 'audio/pcm;rate=16000' } });
         } else if (message.type === 'text' && live && message.text) {
-          live.sendClientContent({ turns: message.text, turnComplete: true });
+          live.sendClientContent({ turns: message.text.slice(0, VOICE_MAX_TEXT), turnComplete: true });
         }
       } catch (err) {
-        send({ type: 'error', message: (err as Error).message });
+        send({ type: 'error', message: sanitizeVoiceError((err as Error).message) });
       }
     });
 
     const cleanup = () => {
+      client.release();
       closing = true;
       for (const cb of pendingReads.values()) cb(null);
       pendingReads.clear();

@@ -89,12 +89,15 @@ export const openapiSpec = {
         tags: ['generation'],
         summary: 'Generate or refine a spec, streamed node-by-node (SSE)',
         description:
-          'Server-Sent Events. Generates (or, when `spec` is supplied, refines) the full spec, ' +
-          'then emits it progressively for a "watch it build" reveal. Prompts that read as ' +
-          'multi-screen (deck/onboarding/wizard/flow/…) are planned into screens, generated ' +
-          'independently, and assembled into a tabbed app. Events: `meta` ' +
-          '({title, initialState, count, source}), one `node` per top-level node ({index, node}), ' +
-          'then `done` ({spec}); `error` ({error}) on failure.',
+          'Server-Sent Events. Generates (or, when `spec` is supplied, refines) the spec with a ' +
+          'streamed model call. While the model writes, `progress` events report ' +
+          '{phase: planning|thinking|design|setup|building|finishing, chars, parts, ms} plus `design` ' +
+          '(the brief, once complete), `title`, and `part` ({type, label}) as each top-level node ' +
+          'closes; a tick arrives every second. Then `meta` ({title, design, initialState, count, ' +
+          'source, degraded, notices}), one `node` per top-level node ({index, node}), and `done` ' +
+          '({spec}); `error` ({error}) on failure. Prompts that read as multi-screen ' +
+          '(deck/onboarding/wizard/flow/…) are planned into screens, generated in parallel, and ' +
+          'assembled into a tabbed app (one `part` per finished screen).',
         requestBody: {
           required: true,
           content: {

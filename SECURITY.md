@@ -16,17 +16,27 @@ demo project maintained on a best-effort basis.
 - Prompts are sent to the **xAI API** (`api.x.ai`) to generate UI specs. The voice
   agent streams microphone audio to **Grok speech-to-speech** (`wss://api.x.ai/v1/realtime`).
   `VOICE_PROVIDER=gemini` sends that traffic to Google instead. There is no database and
-  no auth — put the server behind your own auth or proxy before exposing it, and set
-  `CORS_ORIGIN` if the API is not same-origin. `/api/generate` and `/api/stream` are
-  rate-limited in memory (`RATE_LIMIT_PER_MIN`).
+  no auth: anyone who can reach it can spend your model credits, so put it behind your
+  own auth or proxy before exposing it publicly. What it does on its own:
+  - CORS is off unless `CORS_ORIGIN` is set (the `web` container serves the API on the
+    page's origin).
+  - `/voice` rejects browsers from other sites, and caps voice sessions per client
+    (`VOICE_MAX_SESSIONS`, `VOICE_OPENS_PER_MIN`).
+  - Generation, chat and routing are rate-limited per client IP in memory
+    (`RATE_LIMIT_PER_MIN`), with prompt and spec size caps.
 - Generated **ReactArtifact** and **CustomWidget** code runs in a sandboxed
   `<iframe sandbox="allow-scripts">` with no same-origin access, so it cannot read the
-  parent page, cookies, or the shared app state. CustomWidget documents also set a
-  Content-Security-Policy that blocks network access. ReactArtifact allows the CDN hosts
-  it loads and `https:` fetches. Registry bindings are evaluated by `expr-eval-fork`
-  (the maintained fork that patches the prototype-pollution bugs in unmaintained
-  `expr-eval`), never `eval`. Treat generated code as untrusted all the same.
-- Never commit real API keys. `.env` is gitignored; use `.env.example` as the template.
+  parent page, cookies, or the shared app state, navigate the top window, or open
+  popups. A Content-Security-Policy limits what each frame can fetch: nothing for
+  CustomWidget; the CDN hosts plus open-meteo, coingecko and github for ReactArtifact.
+  A frame can still navigate itself, which the CSP doesn't govern. The host detects
+  that, stops trusting the frame and removes it. So treat what a generated app can see
+  (what you type into it) as potentially leaving it. Registry bindings are evaluated by
+  `expr-eval-fork` (the maintained fork that patches the prototype-pollution bugs in
+  unmaintained `expr-eval`), never `eval`, and model colors that become CSS must be hex.
+- Never commit real API keys. `.env` is gitignored, and `.dockerignore` keeps every
+  `.env*` file except `.env.example` out of the images. Use `.env.example` as the
+  template. `scripts/security-check.mjs` re-checks these behaviors against a running stack.
 
 ## Contact
 

@@ -3,6 +3,9 @@ import OpenAI from 'openai';
 import { grokModel, grokReasoningEffort, xaiBaseURL, xaiKey } from './config.ts';
 import { responseText } from './grok.ts';
 import { inspectJSON } from './json.ts';
+import { logger, since } from './log.ts';
+
+const log = logger('grok');
 
 let client: OpenAI | null = null;
 function getClient(env: NodeJS.ProcessEnv): OpenAI {
@@ -26,6 +29,7 @@ export interface GrokJSONOptions {
 export async function grokJSON<T>(opts: GrokJSONOptions): Promise<T> {
   const env = opts.env ?? process.env;
   const model = opts.model || grokModel(env);
+  const t0 = Date.now();
   const response = await getClient(env).responses.create({
     model,
     instructions: opts.instructions,
@@ -36,6 +40,14 @@ export async function grokJSON<T>(opts: GrokJSONOptions): Promise<T> {
     text: { format: { type: 'json_schema', name: opts.schemaName, schema: opts.schema, strict: false } },
   });
   const text = responseText(response);
+  log.info('model call', {
+    call: opts.schemaName,
+    model,
+    ms: since(t0),
+    inTok: response.usage?.input_tokens,
+    outTok: response.usage?.output_tokens,
+    reasoningTok: response.usage?.output_tokens_details?.reasoning_tokens,
+  });
   if (!text.trim()) throw new Error('Grok returned an empty response');
   return JSON.parse(inspectJSON(text).json) as T;
 }

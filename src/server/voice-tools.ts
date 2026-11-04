@@ -3,16 +3,17 @@
  * Shared by the Grok speech-to-speech session and the opt-in Gemini Live session.
  */
 import type { UISpec } from '../shared/spec.ts';
-import { describeControls, sanitizeActs, type UIAct, type UIActResult, type UIControl } from '../shared/control.ts';
+import { describeControls, sanitizeActs, type BuildKind, type BuildOutcome, type UIAct, type UIActResult, type UIControl } from '../shared/control.ts';
 import type { Generator } from './types.ts';
 
-export const VOICE_SYSTEM = `You are the voice assistant of a generative-UI playground. The user is looking at a UI a model just generated.
+export const VOICE_SYSTEM = `You are the voice assistant of a generative-UI playground. The user describes interfaces out loud and you build them, then help them use and change what is on screen.
+- If the screen is EMPTY (read_ui says so), the user is describing something to build. Once you know what they want (ask at most ONE short question, only if it is truly vague), say one short sentence such as "Building that now", then call generate_ui with a full, specific description: what it is for, the key parts and controls, and the feel. Building takes 20 to 60 seconds; when it returns, say in one sentence what was built and one thing they can ask you to do with it.
 - To READ the screen aloud or ANSWER a question about it, call read_ui first, then respond concisely from the real values it returns. read_ui always reflects the CURRENT screen and lists the CONTROLS you can operate.
 - To USE the UI (set a value, move a slider, press a button, start/pause, add or move an item), call act_ui with control ids from read_ui. It is instant and changes nothing else, so ALWAYS prefer it when a control fits. After acting you may call read_ui again to report the new values.
 - To CHANGE the design or structure (restyle, add a section, a different chart), call refine_ui. Only use generate_ui (a full replace) when the user clearly wants something entirely different.
 - Don't just describe a change — call the tool, then briefly say what you did.
 - If a tool returns ok:false, do NOT claim success — briefly tell the user you couldn't apply that.
-Keep spoken replies short and natural. Never invent data — only use what read_ui returns.`;
+Keep spoken replies to one short, natural sentence. When asked for a value, say that value and nothing more (no breakdown unless they ask for one). Never invent data — only use what read_ui returns.`;
 
 export interface ScreenRead {
   readable: string;
@@ -26,6 +27,20 @@ export interface VoiceToolContext {
   requestRead: () => Promise<ScreenRead | null>;
   /** Runs acts in the browser and returns per-act results (null on timeout). */
   requestAct?: (acts: UIAct[]) => Promise<UIActResult[] | null>;
+  /**
+   * Runs a build in the browser through the same path as typing (router, live
+   * progress, design brief). Null when the browser can't (old client, timeout);
+   * the tool then generates on the server instead.
+   */
+  requestBuild?: (kind: BuildKind, text: string) => Promise<BuildOutcome | null>;
+  /** Rate limit for builds the server runs itself (browser builds go through /api/stream's limit). */
+  allowServerBuild?: () => boolean;
+}
+
+function buildResult(out: BuildOutcome, kind: BuildKind): Record<string, unknown> {
+  return out.ok
+    ? { ok: true, [kind === 'refine' ? 'applied' : 'built']: out.title ?? 'the interface', ...(out.direction ? { design: out.direction } : {}) }
+    : { ok: false, error: out.error || "it didn't build — try describing it differently" };
 }
 
 export interface VoiceToolOutcome {
@@ -54,6 +69,17 @@ export async function runVoiceTool(
     }
     if (ctx.generator.name === 'stub') {
       return { result: { ok: false, error: 'generation is unavailable — no model is connected' } };
+    }
+    if ((name === 'generate_ui' || name === 'refine_ui') && ctx.requestBuild) {
+      const kind: BuildKind = name === 'refine_ui' ? 'refine' : 'generate';
+      const text = String((kind === 'refine' ? args.instruction : args.prompt) ?? '').trim();
+      if (!text) return { result: { ok: false, error: kind === 'refine' ? 'say what to change' : 'say what to build' } };
+      if (kind === 'refine' && !ctx.spec.tree.length) return { result: { ok: false, error: 'nothing is on screen yet — use generate_ui' } };
+      const out = await ctx.requestBuild(kind, text);
+      if (out) return { result: buildResult(out, kind) };
+    }
+    if ((name === 'generate_ui' || name === 'refine_ui') && ctx.allowServerBuild && !ctx.allowServerBuild()) {
+      return { result: { ok: false, error: 'too many builds in the last minute — wait a moment and try again' } };
     }
     if (name === 'generate_ui') {
       const spec = await ctx.generator.generate(String(args.prompt ?? ''));

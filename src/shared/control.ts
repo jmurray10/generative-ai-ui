@@ -51,6 +51,18 @@ export interface ChatRequest {
 
 export type ChatChange = 'none' | 'refine' | 'generate';
 
+/** A build the voice agent asked the browser to run (the same routed, streamed path as typing). */
+export type BuildKind = 'generate' | 'refine';
+
+export interface BuildOutcome {
+  ok: boolean;
+  title?: string;
+  /** Design direction the model committed to. */
+  direction?: string;
+  /** Why nothing was built (held by the router, model failure, stopped). */
+  error?: string;
+}
+
 export interface ChatResponse {
   reply: string;
   acts: UIAct[];

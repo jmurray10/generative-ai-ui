@@ -1,4 +1,4 @@
-import type { Example, GenerateResponse, UINode, UISpec } from '../shared/spec';
+import type { Example, GenerateResponse, UIDesign, UINode, UISpec } from '../shared/spec';
 import type { ChatRequest, ChatResponse, UIActResult } from '../shared/control';
 import type { DecisionEnvelope } from '../shared/toolbox';
 
@@ -21,7 +21,19 @@ export async function generate(prompt: string): Promise<GenerateResponse> {
   return res.json();
 }
 
+/** Live progress while the model writes the spec (server: src/server/spec-progress.ts). */
+export interface BuildProgress {
+  phase: 'planning' | 'thinking' | 'design' | 'setup' | 'building' | 'finishing';
+  chars: number;
+  parts: number;
+  ms: number;
+  part?: { type: string; label: string };
+  design?: UIDesign;
+  title?: string;
+}
+
 export interface StreamHandlers {
+  onProgress?: (p: BuildProgress) => void;
   onMeta?: (m: { title: string | null; initialState: Record<string, any>; count: number; source: string; degraded?: boolean; notices?: string[] }) => void;
   onNode?: (n: { index: number; node: UINode }) => void;
   onDone?: (d: { spec: UISpec }) => void;
@@ -74,7 +86,8 @@ export async function streamSpec(
     } catch {
       return;
     }
-    if (event === 'meta') handlers.onMeta?.(parsed);
+    if (event === 'progress') handlers.onProgress?.(parsed);
+    else if (event === 'meta') handlers.onMeta?.(parsed);
     else if (event === 'node') handlers.onNode?.(parsed);
     else if (event === 'done') { gotDone = true; handlers.onDone?.(parsed); }
     else if (event === 'error') { gotDone = true; handlers.onError?.(parsed.error); } // terminal — don't double-fire the close fallback

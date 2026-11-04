@@ -1,7 +1,15 @@
 node_modules
 dist
 .git
-.env
-.env.local
 *.log
 npm-debug.log*
+
+docs/media
+scripts/screens
+.playwright-mcp
+.claude
+*.webm
+*.mp4
+# Never send env files (keys, local backups) into an image; only the template.
+.env*
+!.env.example

@@ -508,7 +508,10 @@ const ColorPicker: React.FC<Props> = ({ label, stateKey }) => {
 
 const Swatch: React.FC<Props> = ({ label, stateKey, color }) => {
   const { state } = useGenState();
-  const c = stateKey && typeof state[stateKey] === 'string' ? (state[stateKey] as string) : color || '#7c5cff';
+  const raw = stateKey && typeof state[stateKey] === 'string' ? (state[stateKey] as string) : color || '#7c5cff';
+  // Only plain hex reaches CSS: a model- or user-supplied "url(...)" would make the
+  // parent page fetch it (and could carry typed state out with it).
+  const c = typeof raw === 'string' && HEX.test(raw.trim()) ? raw.trim() : '#7c5cff';
   return (
     <div className="flex items-center gap-3">
       <span className="h-12 w-12 rounded-lg border border-edge" style={{ background: c }} />
@@ -570,10 +573,31 @@ export function customWidgetSrcDoc(html: string, css: string, script: string): s
  * Host side of the genui bridge for one sandboxed iframe: keeps its text digest
  * for read_ui, registers the actions it exposes, and settles action results.
  */
-function useFrameBridge(ref: React.RefObject<HTMLIFrameElement>, nodeId: string, onHeight?: (h: number) => void) {
+function useFrameBridge(ref: React.RefObject<HTMLIFrameElement>, nodeId: string, srcDoc: string, onHeight?: (h: number) => void): { navigated: boolean; onLoad: () => void } {
+  // A sandboxed frame can still navigate ITSELF (location = 'https://…'), which the
+  // meta CSP doesn't govern. The new page would inherit this frame's trust (same
+  // contentWindow): our calls and args, a voice of its own in read_ui, and a full
+  // frame of UI to spoof. The srcDoc loads exactly once, so a second load means the
+  // frame left: stop trusting it and take it off screen.
+  // Counted through React's onLoad prop, which is attached before the iframe is inserted,
+  // so the first load can't be missed. A new srcDoc starts the count again.
+  const [navigated, setNavigated] = useState(false);
+  const loads = useRef<{ doc: string; n: number }>({ doc: srcDoc, n: 0 });
+  if (loads.current.doc !== srcDoc) loads.current = { doc: srcDoc, n: 0 };
+  const onLoad = React.useCallback(() => {
+    loads.current.n += 1;
+    if (loads.current.n > 1) {
+      controlHub.unregisterFrame(nodeId);
+      if (ref.current) delete ref.current.dataset.artifactText;
+      setNavigated(true);
+    }
+  }, [nodeId, ref]);
   useEffect(() => {
+    setNavigated(false);
+    const frame = ref.current;
+    if (!frame) return;
     const onMsg = (e: MessageEvent) => {
-      const frame = ref.current;
+      if (loads.current.n > 1) return; // the frame left its document: no longer trusted
       if (!frame || e.source !== frame.contentWindow || !e.data || typeof e.data !== 'object') return;
       if (onHeight && typeof e.data.__artifactHeight === 'number') onHeight(e.data.__artifactHeight);
       if (typeof e.data.__artifactText === 'string') frame.dataset.artifactText = e.data.__artifactText;
@@ -586,16 +610,26 @@ function useFrameBridge(ref: React.RefObject<HTMLIFrameElement>, nodeId: string,
       window.removeEventListener('message', onMsg);
       controlHub.unregisterFrame(nodeId);
     };
-  }, [ref, nodeId, onHeight]);
+  }, [ref, nodeId, srcDoc, onHeight]);
+  return { navigated, onLoad };
 }
+
+/** Shown in place of a sandboxed app that navigated away from its own document. */
+const LeftFrame: React.FC<{ height: number }> = ({ height }) => (
+  <div role="alert" className="grid place-items-center rounded-xl border border-amber-500/40 bg-amber-500/10 p-6 text-center text-sm text-amber-200" style={{ minHeight: Math.min(height, 240) }}>
+    This generated app tried to load another page, so it was stopped. Rebuild to get it back.
+  </div>
+);
 
 const CustomWidget: React.FC<Props> = ({ html = '', css = '', script = '', height = 240, nodeId = 'widget' }) => {
   const ref = useRef<HTMLIFrameElement>(null);
-  useFrameBridge(ref, String(nodeId));
   const srcDoc = customWidgetSrcDoc(String(html), String(css), String(script));
+  const { navigated, onLoad } = useFrameBridge(ref, String(nodeId), srcDoc);
+  if (navigated) return <LeftFrame height={Number(height)} />;
   return (
     <iframe
       ref={ref}
+      onLoad={onLoad}
       title="custom-widget"
       sandbox="allow-scripts"
       referrerPolicy="no-referrer"
@@ -725,16 +759,19 @@ const ReactArtifact: React.FC<Props> = ({ code = '', height = 480, nodeId = 'art
   // scenes (fixed/absolute canvases) report almost no document height.
   const floor = Math.max(120, Number(height) || 480);
   const onHeight = React.useCallback((v: number) => setH(Math.max(floor, Math.min(2400, Math.round(v)))), [floor]);
-  useFrameBridge(ref, String(nodeId), onHeight);
+  const srcDoc = React.useMemo(() => buildArtifactDoc(String(code)), [code]);
+  const { navigated, onLoad } = useFrameBridge(ref, String(nodeId), srcDoc, onHeight);
+  if (navigated) return <LeftFrame height={h} />;
   return (
     <iframe
       ref={ref}
+      onLoad={onLoad}
       title="react-artifact"
       sandbox="allow-scripts"
-      allow="autoplay; fullscreen; encrypted-media"
-      allowFullScreen
+      // No fullscreen: a frame that could cover the whole screen could pass for the app itself.
+      allow="autoplay; encrypted-media"
       referrerPolicy="no-referrer"
-      srcDoc={buildArtifactDoc(String(code))}
+      srcDoc={srcDoc}
       className="w-full rounded-xl border border-edge bg-canvas"
       style={{ height: h }}
     />

@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { Example, UIDesign, UINode, UISpec } from '../shared/spec';
-import type { ChatTurn, UIActResult } from '../shared/control';
+import type { BuildKind, BuildOutcome, ChatTurn, UIActResult } from '../shared/control';
 import type { DecisionEnvelope } from '../shared/toolbox';
-import { chat, confirmChat, decide, fetchExamples, streamSpec } from './api';
+import { chat, confirmChat, decide, fetchExamples, streamSpec, type BuildProgress } from './api';
 import { GeneratedApp } from './engine/GeneratedApp';
 import { controlHub } from './engine/control';
 import { digestDomControls } from './engine/snapshot';
@@ -80,6 +80,11 @@ export const App: React.FC = () => {
   const [chatBusy, setChatBusy] = useState(false);
   const [example, setExample] = useState<Example | null>(null);
   const [started, setStarted] = useState(false);
+  const [progress, setProgress] = useState<BuildProgress | null>(null);
+  const [liveParts, setLiveParts] = useState<{ type: string; label: string }[]>([]);
+  const [earlyDesign, setEarlyDesign] = useState<UIDesign | null>(null);
+  /** Voice builds go through the same routed, streamed path as typing (set below). */
+  const voiceBuild = useRef<(kind: BuildKind, text: string) => Promise<BuildOutcome>>(async () => ({ ok: false, error: 'not ready' }));
 
   const specRef = useRef<UISpec | null>(null);
   specRef.current = spec;
@@ -136,8 +141,9 @@ export const App: React.FC = () => {
     },
     onActs: (results) => results.forEach((r) => push({ kind: 'event', text: describeResult(r), ok: r.ok })),
     onTool: (name) => {
-      if (name === 'refine_ui' || name === 'generate_ui') push({ kind: 'event', text: name === 'refine_ui' ? 'Refining the design…' : 'Generating a new UI…' });
+      if (name === 'refine_ui' || name === 'generate_ui') push({ kind: 'event', text: name === 'refine_ui' ? 'Rebuilding by voice…' : 'Building by voice…' });
     },
+    onBuild: (kind, text) => voiceBuild.current(kind, text),
   });
   const voiceLive = voice.status === 'live' || voice.status === 'connecting';
 
@@ -165,9 +171,10 @@ export const App: React.FC = () => {
   }, [voice.sendText]);
 
   // ---- build: route with Jev, then stream ----------------------------------
-  const startStream = useCallback((text: string, routing?: Routing) => {
+  /** Stream one build (or a refine of `base`). Resolves when it is on screen, fails or is stopped. */
+  const startStream = useCallback((text: string, routing?: Routing, base?: UISpec): Promise<BuildOutcome> => {
     abortRef.current?.abort();
-    lastRun.current = () => startStream(text, routing);
+    lastRun.current = () => { void startStream(text, routing, base); };
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     setBuilding(true);
@@ -176,10 +183,22 @@ export const App: React.FC = () => {
     setLog([]);
     setNotices([]);
     setSpec(null);
+    setProgress({ phase: base ? 'design' : 'thinking', chars: 0, parts: 0, ms: 0 });
+    setLiveParts([]);
+    setEarlyDesign(null);
+
+    let settle: (o: BuildOutcome) => void = () => {};
+    const outcome = new Promise<BuildOutcome>((res) => { settle = res; });
+    ctrl.signal.addEventListener('abort', () => settle({ ok: false, error: 'the build was stopped' }));
 
     streamSpec(
-      { prompt: text, ...routing },
+      { prompt: text, ...routing, ...(base ? { spec: base } : {}) },
       {
+        onProgress: (p) => {
+          setProgress(p);
+          if (p.design) setEarlyDesign(p.design);
+          if (p.part) setLiveParts((l) => [...l, p.part!]);
+        },
         onMeta: (m) => {
           const source = m.degraded ? (m.source === 'stub' ? 'stub' : 'degraded') : m.source;
           setProv({ kind: 'generate', text, source });
@@ -196,51 +215,80 @@ export const App: React.FC = () => {
         onDone: (d) => {
           setSpec(d.spec);
           setBuilding(false);
-          if (d.spec.title) push({ kind: 'event', text: `Built “${d.spec.title}”${d.spec.design?.direction ? ` · ${d.spec.design.direction}` : ''}` });
+          setProgress(null);
+          const degraded = d.spec.tree.length === 1 && d.spec.tree[0]?.id === 'fallback-card';
+          if (d.spec.title && !degraded) push({ kind: 'event', text: `${base ? 'Rebuilt' : 'Built'} “${d.spec.title}”${d.spec.design?.direction ? ` · ${d.spec.design.direction}` : ''}` });
+          settle(degraded
+            ? { ok: false, error: 'the model did not return a UI' }
+            : { ok: true, title: d.spec.title ?? undefined, direction: d.spec.design?.direction ?? undefined });
         },
         onError: (e) => {
           setError(e);
           setBuilding(false);
+          setProgress(null);
+          settle({ ok: false, error: 'generation failed' });
         },
       },
       ctrl.signal,
     ).catch((e) => {
       setError(String(e));
       setBuilding(false);
+      setProgress(null);
+      settle({ ok: false, error: 'generation failed' });
     });
+    return outcome;
   }, [push]);
 
-  const routeThenBuild = useCallback(async (text: string, answered: boolean) => {
+  const routeThenBuild = useCallback(async (text: string, answered: boolean): Promise<BuildOutcome> => {
     setDecision({ status: 'deciding', prompt: text });
     try {
       const env = await decide(text, answered);
       setDecision({ status: 'done', envelope: env });
       const d = env.decision;
       if (d.kind === 'route') return startStream(text, routingFrom(env));
-      if (d.kind === 'ask') return; // the decision card asks; build continues on answer/skip
-      if (d.reason === 'unsafe_or_injection' || d.reason === 'contradictory') return; // hard hold
-      startStream(text); // low confidence / router error: let the model choose the tools
+      if (d.kind === 'ask') return { ok: false, error: `the router wants one detail first: ${d.prompt}` }; // the card asks
+      if (d.reason === 'unsafe_or_injection' || d.reason === 'contradictory') {
+        return { ok: false, error: d.reason === 'contradictory' ? 'the request contradicts itself' : 'the router held this request' };
+      }
+      return startStream(text); // low confidence / router error: let the model choose the tools
     } catch (e) {
       setDecision({ status: 'failed', error: (e as Error).message });
-      startStream(text);
+      return startStream(text);
     }
   }, [startStream]);
 
-  const build = useCallback((text: string, ex?: Example) => {
+  const build = useCallback((text: string, ex?: Example, opts: { keepVoice?: boolean } = {}): Promise<BuildOutcome> => {
     const p = text.trim();
-    if (!p) return;
+    if (!p) return Promise.resolve({ ok: false, error: 'nothing to build' });
     abortRef.current?.abort();
-    if (voiceLive) stopVoice();
+    if (voiceLive && !opts.keepVoice) stopVoice();
     setPrompt(p);
     setStarted(true);
     setExample(ex ?? null);
-    setEntries([]);
+    if (!opts.keepVoice) setEntries([]);
     setSpec(null);
     setBuilding(false);
     pendingPrompt.current = p;
-    // Curated prompts are specific; let Jev route or hold, never ask.
-    void routeThenBuild(p, Boolean(ex));
+    // Curated prompts are specific, and a voice request was already clarified in
+    // conversation: let Jev route or hold, never ask.
+    return routeThenBuild(p, Boolean(ex) || Boolean(opts.keepVoice));
   }, [routeThenBuild, voiceLive, stopVoice]);
+
+  voiceBuild.current = (kind, text) => {
+    if (kind === 'refine' && specRef.current) {
+      setPrompt(text);
+      return startStream(text, undefined, specRef.current);
+    }
+    return build(text, undefined, { keepVoice: true });
+  };
+
+  /** Start a voice session with nothing built yet: the user describes the UI out loud. */
+  const talkToBuild = () => {
+    setStarted(true);
+    setEntries([]);
+    setDecision({ status: 'idle' });
+    void voice.start();
+  };
 
   const answerJev = (answer: string) => {
     const p = `${pendingPrompt.current}\nAudience: ${answer}`;
@@ -278,13 +326,13 @@ export const App: React.FC = () => {
 
   // ---- chat: answer, operate, or rebuild -------------------------------------
   const send = async (text: string) => {
-    if (!specRef.current) return;
     if (voiceLive) {
       // One conversation: while voice is on, typed messages go to the voice agent, which answers aloud.
       push({ kind: 'user', text, via: 'chat' });
       voice.sendText(text);
       return;
     }
+    if (!specRef.current) return;
     push({ kind: 'user', text, via: 'chat' });
     setChatBusy(true);
     const history: ChatTurn[] = entries
@@ -373,7 +421,16 @@ export const App: React.FC = () => {
       </header>
 
       {!started ? (
-        <Landing examples={examples} prompt={prompt} setPrompt={setPrompt} onBuild={build} onSurprise={surprise} generatorReady={backend.generator !== 'stub'} />
+        <Landing
+          examples={examples}
+          prompt={prompt}
+          setPrompt={setPrompt}
+          onBuild={(p, ex) => void build(p, ex)}
+          onSurprise={surprise}
+          generatorReady={backend.generator !== 'stub'}
+          voiceName={voiceName}
+          onTalk={talkToBuild}
+        />
       ) : (
         <div className="relative mx-auto grid max-w-[90rem] gap-5 px-5 py-5 lg:grid-cols-[minmax(0,1fr)_23rem]">
           <main aria-busy={busy} className="min-w-0">
@@ -399,7 +456,16 @@ export const App: React.FC = () => {
                 )}
               </div>
             ) : (
-              <Waiting prompt={pendingPrompt.current} decision={decision} building={building} />
+              <BuildTimeline
+                prompt={decision.status === 'idle' && !building ? '' : pendingPrompt.current}
+                decision={decision}
+                building={building}
+                progress={progress}
+                parts={liveParts}
+                design={earlyDesign}
+                listening={voiceLive}
+                voiceName={voiceName}
+              />
             )}
           </main>
 
@@ -411,7 +477,7 @@ export const App: React.FC = () => {
             transcripts={voiceLive || voice.status === 'error' ? voice.transcripts : []}
             suggestions={suggestions}
             busy={chatBusy}
-            canChat={Boolean(spec) && !building}
+            canChat={(Boolean(spec) && !building) || voiceLive}
             onSend={(t) => void send(t)}
             voiceName={voiceName}
             voiceStatus={voice.status}
@@ -431,23 +497,157 @@ export const App: React.FC = () => {
   );
 };
 
-const Waiting: React.FC<{ prompt: string; decision: DecisionState; building: boolean }> = ({ prompt, decision, building }) => {
+type StepState = 'done' | 'active' | 'todo';
+
+/** Palette chips render as CSS backgrounds: plain hex only (the server filters too). */
+const hexOnly = (p?: string[]) => (p ?? []).filter((c) => /^#[0-9a-f]{3,8}$/i.test(c));
+
+const PHASE_ORDER: BuildProgress['phase'][] = ['planning', 'thinking', 'design', 'setup', 'building', 'finishing'];
+
+/** The build as it actually happens: route → think → brief → parts → render. No made-up percentages. */
+const BuildTimeline: React.FC<{
+  prompt: string;
+  decision: DecisionState;
+  building: boolean;
+  progress: BuildProgress | null;
+  parts: { type: string; label: string }[];
+  design: UIDesign | null;
+  listening: boolean;
+  voiceName: string | null;
+}> = ({ prompt, decision, building, progress, parts, design, listening, voiceName }) => {
   const asking = decision.status === 'done' && decision.envelope.decision.kind === 'ask' && !decision.skipped && !building;
   const held = decision.status === 'done' && decision.envelope.decision.kind === 'hold' && !building;
+
+  // Client-side clock between server ticks, so the timer moves smoothly.
+  const [now, setNow] = useState(Date.now());
+  const started = useRef(Date.now());
+  useEffect(() => {
+    if (!building) return;
+    started.current = Date.now() - (progress?.ms ?? 0);
+    const t = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [building]);
+  useEffect(() => {
+    if (progress) started.current = Math.min(started.current, Date.now() - progress.ms);
+  }, [progress]);
+  const elapsed = building ? Math.max(0, (now - started.current) / 1000) : 0;
+
+  if (listening && !prompt) {
+    return (
+      <div className="rounded-2xl border border-edge bg-panel/50 p-6">
+        <p className="flex items-center gap-2 text-sm text-accent-soft">
+          <span className="h-2 w-2 animate-ping rounded-full bg-accent" /> Listening
+        </p>
+        <p className="mt-1 font-display text-2xl leading-snug text-ink">Describe the interface you want.</p>
+        <p className="mt-3 max-w-prose text-sm text-muted">
+          Say what it's for and what it should do: “a habit tracker with a yearly heatmap and streaks”. {voiceName ?? 'The agent'} may ask one
+          question, then builds it, and you can keep talking to it once it's on screen.
+        </p>
+      </div>
+    );
+  }
+
+  const phase = progress?.phase;
+  const at = phase ? PHASE_ORDER.indexOf(phase) : -1;
+  const routed = decision.status === 'done' || decision.status === 'failed' || building;
+  const step = (cond: { done: boolean; active: boolean }): StepState => (cond.done ? 'done' : cond.active ? 'active' : 'todo');
+  const steps: { key: string; label: string; state: StepState; detail?: React.ReactNode }[] = [
+    {
+      key: 'route',
+      label: 'Choose the tools',
+      state: step({ done: routed, active: decision.status === 'deciding' }),
+      detail: decision.status === 'done' && decision.envelope.decision.kind === 'route'
+        ? `${decision.envelope.decision.renderMode === 'registry' ? 'registry components' : 'sandboxed React'}${decision.envelope.decision.components.length ? ` · ${decision.envelope.decision.components.join(', ')}` : ''}`
+        : undefined,
+    },
+    ...(phase === 'planning' || (progress && progress.parts > 0 && parts[0]?.type === 'Screen')
+      ? [{ key: 'plan', label: 'Plan the screens', state: step({ done: at > 0, active: phase === 'planning' }) }]
+      : []),
+    {
+      key: 'think',
+      label: 'Think it through',
+      state: step({ done: building && (at >= 2 || Boolean(design)), active: building && (phase === 'thinking' || !phase) }),
+      detail: building && phase === 'thinking' ? 'reasoning about layout, state and interactions' : undefined,
+    },
+    {
+      key: 'brief',
+      label: 'Commit to a design brief',
+      state: step({ done: Boolean(design) || at >= 3, active: phase === 'design' }),
+      detail: design ? (
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-ink">{design.direction}</span>
+          {design.fonts && <span className="text-muted/80">· {design.fonts}</span>}
+          {design.palette?.length ? (
+            <span className="flex gap-0.5">{hexOnly(design.palette).slice(0, 6).map((c) => <span key={c} className="h-3 w-3 rounded-sm border border-white/10" style={{ background: c }} />)}</span>
+          ) : null}
+        </span>
+      ) : undefined,
+    },
+    {
+      key: 'parts',
+      label: progress?.parts ? `Write the parts · ${progress.parts} done` : 'Write the parts',
+      state: step({ done: phase === 'finishing', active: phase === 'setup' || phase === 'building' }),
+    },
+    { key: 'render', label: 'Render', state: step({ done: false, active: phase === 'finishing' }) },
+  ];
+
   return (
     <div className="rounded-2xl border border-edge bg-panel/50 p-6">
-      <p className="text-sm text-muted">
-        {asking ? 'One question before building' : held ? 'Not building this one' : building ? 'Designing and building' : 'Choosing the tools'}
+      <div className="flex items-start justify-between gap-4">
+        <p className="text-sm text-muted">
+          {asking ? 'One question before building' : held ? 'Not building this one' : building ? 'Designing and building' : 'Choosing the tools'}
+        </p>
+        {building && <span className="font-mono text-xs tabular text-muted" aria-label="Elapsed time">{elapsed.toFixed(0)}s</span>}
+      </div>
+      <p className={`mt-1 font-display leading-snug text-ink ${prompt.length > 90 ? 'text-xl' : 'text-2xl'}`} title={prompt.length > 140 ? prompt : undefined}>
+        “{prompt.length > 140 ? `${prompt.slice(0, 140).replace(/\s+\S*$/, '')}…` : prompt}”
       </p>
-      <p className="mt-1 font-display text-2xl leading-snug text-ink">“{prompt}”</p>
       {asking ? (
         <p className="mt-4 text-sm text-muted">Answer in the panel, or choose “Just build it”.</p>
       ) : held ? (
         <p className="mt-4 text-sm text-muted">See the toolbox decision for why.</p>
       ) : (
-        <div className="mt-6 space-y-3">
-          {[78, 56, 68, 40].map((w, i) => <div key={i} className="h-3.5 animate-pulse rounded bg-edge/70" style={{ width: `${w}%`, animationDelay: `${i * 120}ms` }} />)}
-        </div>
+        <>
+          <div className="mt-5 h-1 w-full overflow-hidden rounded-full bg-edge" role="progressbar" aria-label="Build in progress" aria-valuetext={steps.find((s) => s.state === 'active')?.label}>
+            <div className="h-full w-1/3 animate-indeterminate rounded-full bg-accent" />
+          </div>
+          <ol className="mt-5 space-y-2.5" aria-label="Build steps">
+            {steps.map((s) => (
+              <li key={s.key} className="flex items-start gap-3 text-sm">
+                <span
+                  className={`mt-1 grid h-4 w-4 shrink-0 place-items-center rounded-full border text-[10px] ${
+                    s.state === 'done' ? 'border-accent bg-accent text-accent-ink' : s.state === 'active' ? 'border-accent text-accent' : 'border-edge text-transparent'
+                  }`}
+                  aria-hidden
+                >
+                  {s.state === 'done' ? '✓' : s.state === 'active' ? <span className="h-1.5 w-1.5 animate-ping rounded-full bg-accent" /> : '·'}
+                </span>
+                <span className="min-w-0">
+                  <span className={s.state === 'todo' ? 'text-muted/60' : 'text-ink'}>{s.label}</span>
+                  <span className="sr-only">{s.state === 'done' ? ' (done)' : s.state === 'active' ? ' (in progress)' : ''}</span>
+                  {s.detail && <span className="mt-0.5 block text-xs text-muted">{s.detail}</span>}
+                </span>
+              </li>
+            ))}
+          </ol>
+          {parts.length > 0 && (
+            <div className="mt-4 border-t border-edge pt-3 font-mono text-[11px] leading-relaxed" aria-label="Parts written so far">
+              {parts.slice(-6).map((e, i) => {
+                const sandboxed = e.type === 'CustomWidget' || e.type === 'ReactArtifact';
+                return (
+                  <div key={`${parts.length}-${i}`} className="animate-rise">
+                    <span className={sandboxed ? 'text-amber-300' : 'text-accent'}>+</span> <span className="text-muted">{e.type}</span>
+                    {e.label ? <span className="text-muted/70"> “{e.label}”</span> : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {building && phase === 'thinking' && elapsed > 12 && (
+            <p className="mt-4 text-xs text-muted/80">Larger apps take 30–60 seconds; the model plans the whole thing before writing it.</p>
+          )}
+        </>
       )}
     </div>
   );
@@ -484,7 +684,7 @@ const CanvasHeader: React.FC<{ spec: UISpec; prov: Prov; building: boolean; show
           {d.fonts && <span><span className="text-muted/70">Type</span> <span className="text-ink">{d.fonts}</span></span>}
           {d.palette && d.palette.length > 0 && (
             <span className="flex items-center gap-1" aria-label={`Palette ${d.palette.join(', ')}`}>
-              {d.palette.map((c) => <span key={c} title={c} className="h-3.5 w-3.5 rounded-sm border border-white/10" style={{ background: c }} />)}
+              {hexOnly(d.palette).map((c) => <span key={c} title={c} className="h-3.5 w-3.5 rounded-sm border border-white/10" style={{ background: c }} />)}
             </span>
           )}
           {d.signature && <span className="basis-full text-muted sm:basis-auto"><span className="text-muted/70">Signature</span> {d.signature}</span>}
@@ -499,7 +699,7 @@ const BuildProgress: React.FC<{ have: number; count: number; log: { type: string
     <div className="mb-2 flex items-center justify-between text-xs">
       <span className="flex items-center gap-2 text-accent-soft">
         <span className="h-1.5 w-1.5 animate-ping rounded-full bg-accent" />
-        Assembling the interface…
+        Rendering the interface…
       </span>
       <span className="font-mono text-muted tabular">{have}/{Math.max(have, count)}</span>
     </div>
