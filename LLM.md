@@ -93,6 +93,10 @@ approval step, async data, a missing audience / data / action, **prompt injectio
   probabilities are Grok's own estimates, not calibrated like Jev's, and the UI labels the
   source.
 
+Measured with Jev itself (`jev-1.13.0`): 25/25 on the tuning split, 4/4 showcase, 16/17
+held out, 10/10 safety holds, in about 120–250 ms per decision. That is the router's
+PEAS performance measure, and it can be re-run any time with `scripts/jev-eval.ts`.
+
 **Code owns the policy** (`src/server/jev/policy.ts`): thresholds are constants tuned
 offline (`scripts/jev-eval.ts`), the ask copy is fixed text, and the "why" lines are
 written by code from the evidence. The answers can push a prompt to *ask* (one question,

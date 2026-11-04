@@ -25,6 +25,11 @@ All notable changes to this project are documented here. The format follows
   json-file log rotation in compose, nginx request log on `web`.
 - Six voice-controlled demo clips, one per gallery example; `scripts/voice-build.mjs`.
 
+### Fixed
+- The answer to Jev's one question was always sent as `Audience:`; it is now labelled by
+  the slot Jev asked about (`Audience`, `Data`, `Main action`). Found with Jev live; the
+  `jev-asks-first` clip is re-recorded with Jev routing instead of the Grok judge.
+
 ### Security
 From a review of the whole repo (server/deploy and browser sandboxes). Each fix is checked
 live by `scripts/security-check.mjs`.

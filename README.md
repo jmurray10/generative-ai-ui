@@ -121,7 +121,9 @@ probabilities. **The policy that turns those answers into a decision is code**
 | `ask`    | the panel asks one question (or **Just build it**); the answer re-routes once and never asks again |
 | `hold`   | injection or contradiction: nothing is built. Low confidence or a router error: the model chooses the tools |
 
-With `TYPESAFE_API_KEY` set, Jev itself decides. Without it, a Grok "judge" answers
+With `TYPESAFE_API_KEY` set, Jev itself decides, in about 120–250 ms. Measured with Jev
+on the labelled set: 25/25 on the tuning split, 16/17 held out, and all 10 injection and
+contradiction prompts held. Without it, a Grok "judge" answers
 the same questions (`JEV_JUDGE_MODEL`, about 2 s on a non-reasoning model) and the
 panel labels it as the stand-in.
 
